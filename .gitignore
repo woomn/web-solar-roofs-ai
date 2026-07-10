@@ -1,0 +1,35 @@
+# Frontend
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/build/
+
+# Backend
+backend/.venv/
+backend/venv/
+backend/uploads/
+backend/outputs/
+backend/best.pt
+
+# Models / large files
+*.pt
+*.pth
+*.onnx
+
+# GeoTIFF / datasets
+*.tif
+*.tiff
+dataset/
+datasets/
+data/
+
+# Env
+.env
+.env.*
+
+# Cache
+__pycache__/
+*.pyc
+
+# OS
+.DS_Store
