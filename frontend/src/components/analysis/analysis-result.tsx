@@ -350,6 +350,13 @@ export default function AnalysisResult() {
             >
               วิเคราะห์ไฟล์ใหม่
             </Link>
+
+            <Link
+              href="/report"
+              className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-6 py-4 text-sm font-semibold text-white transition hover:bg-slate-800"
+            >
+              ดู Report
+            </Link>
           </div>
         </>
       )}
