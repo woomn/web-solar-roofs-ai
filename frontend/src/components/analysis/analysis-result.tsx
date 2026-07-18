@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import {
   AlertTriangle,
@@ -10,6 +10,7 @@ import {
   ImageIcon,
   Layers3,
   Loader2,
+  MapPin,
   Play,
   Ruler,
   Zap,
@@ -35,16 +36,42 @@ type GeoTiffAnalysis = {
   };
 };
 
+type DetectedLocation = {
+  region_id: number;
+  confidence: number;
+  mask_pixel_area: number;
+  area_m2: number;
+  center_pixel: {
+    x: number;
+    y: number;
+  };
+  map_coordinate: {
+    x: number;
+    y: number;
+    crs: string | null;
+  };
+  latitude: number | null;
+  longitude: number | null;
+};
+
 type DetectionResult = {
   success: boolean;
   filename: string;
+
+  // panel_count เก็บไว้เพื่อรองรับ backend เดิม
+  // แต่ในหน้าเว็บจะแสดงเป็น region_count / Detected Solar Regions
   panel_count: number;
+  region_count?: number;
+
   confidence: number;
   mask_pixel_area: number;
   pixel_area_m2: number;
   detected_area_m2: number;
   capacity_kwp: number;
   daily_energy_kwh: number;
+
+  detected_locations?: DetectedLocation[];
+
   input_preview: string;
   result_image: string;
 };
@@ -154,6 +181,8 @@ export default function AnalysisResult() {
     );
   }
 
+  const detectedRegionCount = result?.region_count ?? result?.panel_count ?? 0;
+
   return (
     <div className="space-y-8">
       <div className="rounded-[32px] border border-slate-200 bg-white p-8 shadow-sm">
@@ -221,8 +250,8 @@ export default function AnalysisResult() {
             <MetricCard
               icon={<Layers3 className="h-6 w-6 text-blue-600" />}
               label="Detected Solar Regions"
-              value={formatNumber(result.panel_count, 0)}
-              unit="masks"
+              value={formatNumber(detectedRegionCount, 0)}
+              unit="regions"
             />
 
             <MetricCard
@@ -262,6 +291,8 @@ export default function AnalysisResult() {
               imageUrl={result.result_image}
             />
           </div>
+
+          <DetectedLocationsTable locations={result.detected_locations ?? []} />
 
           <div className="rounded-[32px] border border-slate-200 bg-white p-8 shadow-sm">
             <h3 className="text-2xl font-bold text-slate-900">
@@ -332,7 +363,7 @@ function MetricCard({
   value,
   unit,
 }: {
-  icon: React.ReactNode;
+  icon: ReactNode;
   label: string;
   value: string;
   unit: string;
@@ -368,6 +399,136 @@ function ImagePanel({ title, imageUrl }: { title: string; imageUrl: string }) {
         />
       </div>
     </div>
+  );
+}
+
+function DetectedLocationsTable({
+  locations,
+}: {
+  locations: DetectedLocation[];
+}) {
+  return (
+    <div className="rounded-[32px] border border-slate-200 bg-white p-8 shadow-sm">
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div>
+          <div className="flex items-center gap-3">
+            <MapPin className="h-6 w-6 text-blue-600" />
+            <h3 className="text-2xl font-bold text-slate-900">
+              Detected Locations
+            </h3>
+          </div>
+
+          <p className="mt-3 text-sm leading-6 text-slate-500">
+            ตารางนี้แสดงตำแหน่งของ Solar Rooftop แต่ละ region ที่โมเดลตรวจพบ
+            โดยแปลงจาก pixel coordinate เป็นพิกัดแผนที่และ Latitude/Longitude
+            จากข้อมูล GeoTIFF
+          </p>
+        </div>
+
+        <div className="rounded-full bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700">
+          {locations.length} regions
+        </div>
+      </div>
+
+      {locations.length === 0 ? (
+        <div className="mt-6 rounded-2xl bg-slate-50 p-6 text-sm text-slate-500">
+          ไม่พบข้อมูลตำแหน่งของ region ที่ตรวจจับได้
+        </div>
+      ) : (
+        <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[1000px] text-left text-sm">
+              <thead className="bg-slate-50 text-slate-500">
+                <tr>
+                  <th className="px-5 py-4 font-semibold">Region</th>
+                  <th className="px-5 py-4 font-semibold">Confidence</th>
+                  <th className="px-5 py-4 font-semibold">Area</th>
+                  <th className="px-5 py-4 font-semibold">Center Pixel</th>
+                  <th className="px-5 py-4 font-semibold">Map Coordinate</th>
+                  <th className="px-5 py-4 font-semibold">Lat / Lon</th>
+                </tr>
+              </thead>
+
+              <tbody className="divide-y divide-slate-200 bg-white">
+                {locations.map((location) => (
+                  <tr
+                    key={location.region_id}
+                    className="transition hover:bg-slate-50"
+                  >
+                    <td className="px-5 py-4 font-semibold text-slate-900">
+                      #{location.region_id}
+                    </td>
+
+                    <td className="px-5 py-4">
+                      <ConfidenceBadge value={location.confidence} />
+                    </td>
+
+                    <td className="px-5 py-4 text-slate-700">
+                      <div className="font-semibold">
+                        {formatNumber(location.area_m2, 2)} m²
+                      </div>
+                      <div className="mt-1 text-xs text-slate-400">
+                        {formatNumber(location.mask_pixel_area, 2)} px
+                      </div>
+                    </td>
+
+                    <td className="px-5 py-4 text-slate-700">
+                      x={formatNumber(location.center_pixel.x, 2)}
+                      <br />
+                      y={formatNumber(location.center_pixel.y, 2)}
+                    </td>
+
+                    <td className="px-5 py-4 text-slate-700">
+                      x={formatNumber(location.map_coordinate.x, 3)}
+                      <br />
+                      y={formatNumber(location.map_coordinate.y, 3)}
+                      <div className="mt-1 text-xs text-slate-400">
+                        {location.map_coordinate.crs ?? "Unknown CRS"}
+                      </div>
+                    </td>
+
+                    <td className="px-5 py-4 text-slate-700">
+                      {location.latitude !== null &&
+                      location.longitude !== null ? (
+                        <>
+                          lat={formatNumber(location.latitude, 7)}
+                          <br />
+                          lon={formatNumber(location.longitude, 7)}
+                        </>
+                      ) : (
+                        <span className="text-slate-400">No lat/lon</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      <p className="mt-4 text-xs leading-5 text-slate-400">
+        หมายเหตุ: Region หมายถึงพื้นที่หรือ mask ที่โมเดลตรวจพบ
+        ไม่ใช่จำนวนแผงโซลาร์เซลล์จริงแบบแยกแผง
+      </p>
+    </div>
+  );
+}
+
+function ConfidenceBadge({ value }: { value: number }) {
+  const badgeClass =
+    value >= 70
+      ? "bg-emerald-50 text-emerald-700"
+      : value >= 40
+        ? "bg-amber-50 text-amber-700"
+        : "bg-red-50 text-red-700";
+
+  return (
+    <span
+      className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ${badgeClass}`}
+    >
+      {formatNumber(value, 2)}%
+    </span>
   );
 }
 
