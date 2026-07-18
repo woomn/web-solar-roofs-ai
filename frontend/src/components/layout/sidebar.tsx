@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  BarChart3,
   BrainCircuit,
   FileText,
+  History as HistoryIcon,
   LayoutDashboard,
   Satellite,
   SlidersHorizontal,
@@ -34,16 +34,15 @@ const navItems = [
     icon: BrainCircuit,
   },
   {
-    href: "/results",
-    label: "Results",
-    icon: BarChart3,
+    href: "/history",
+    label: "History",
+    icon: HistoryIcon,
     status: "Soon",
   },
   {
     href: "/report",
     label: "Report",
     icon: FileText,
-    status: "Soon",
   },
   {
     href: "/settings",
