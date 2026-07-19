@@ -24,3 +24,240 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* ซ่อนรายงานทางการตอนดูบนเว็บ */
+@media screen {
+  .official-report {
+    display: none !important;
+  }
+}
+
+/* ใช้ layout รายงานทางการเฉพาะตอน Print / Save PDF */
+@media print {
+  @page {
+    size: A4;
+    margin: 18mm 16mm;
+  }
+
+  html,
+  body {
+    background: #ffffff !important;
+    color: #111827 !important;
+    font-family: "TH Sarabun New", "Sarabun", "Times New Roman", Arial,
+      sans-serif;
+    font-size: 14pt;
+    line-height: 1.55;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  html,
+  body,
+  main,
+  article,
+  section,
+  div {
+    background-color: #ffffff !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .official-report {
+    display: block !important;
+    color: #111827 !important;
+    background-color: #ffffff !important;
+  }
+
+  .official-report * {
+    box-shadow: none !important;
+  }
+
+  .official-cover {
+    min-height: 245mm;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    page-break-after: always;
+    text-align: center;
+    background-color: #ffffff !important;
+  }
+
+  .official-cover-document-type {
+    margin-bottom: 10mm;
+    font-size: 15pt;
+    font-weight: 700;
+    letter-spacing: 0.2px;
+  }
+
+  .official-cover-title {
+    font-size: 24pt;
+    font-weight: 700;
+    line-height: 1.45;
+    background-color: #ffffff !important;
+  }
+
+  .official-cover-subtitle {
+    margin-top: 12mm;
+    font-size: 16pt;
+    line-height: 1.6;
+    background-color: #ffffff !important;
+  }
+
+  .official-cover-purpose {
+    margin-top: 14mm;
+    font-size: 13pt;
+    line-height: 1.7;
+    color: #374151 !important;
+  }
+
+  .official-cover-meta {
+    margin-top: 24mm;
+    font-size: 14pt;
+    line-height: 1.8;
+    background-color: #ffffff !important;
+  }
+
+  .official-section {
+    margin-bottom: 12mm;
+    page-break-inside: avoid;
+    break-inside: avoid;
+    background-color: #ffffff !important;
+  }
+
+  .official-page-break {
+    page-break-before: always;
+  }
+
+  .official-section-title {
+    margin-bottom: 6mm;
+    border-bottom: 2px solid #111827;
+    padding-bottom: 2mm;
+    font-size: 18pt;
+    font-weight: 700;
+    background-color: #ffffff !important;
+  }
+
+  .official-subsection-title {
+    margin-top: 7mm;
+    margin-bottom: 3mm;
+    font-size: 15pt;
+    font-weight: 700;
+  }
+
+  .official-paragraph {
+    margin-bottom: 4mm;
+    text-align: start;
+    background-color: #ffffff !important;
+  }
+
+  .official-summary-box {
+    margin: 6mm 0;
+    border: 1px solid #4b5563;
+    padding: 5mm;
+    background-color: #ffffff !important;
+  }
+
+  .official-list {
+    margin: 0 0 4mm 8mm;
+    padding: 0;
+  }
+
+  .official-list li {
+    margin-bottom: 2mm;
+  }
+
+  .official-table {
+    width: 100%;
+    border-collapse: collapse !important;
+    font-size: 13pt;
+    background-color: #ffffff !important;
+  }
+
+  .official-table thead,
+  .official-table tbody,
+  .official-table tr {
+    background-color: #ffffff !important;
+  }
+
+  .official-table th,
+  .official-table td {
+    border: 1px solid #4b5563 !important;
+    padding: 6px 8px;
+    vertical-align: top;
+    background-color: #ffffff !important;
+  }
+
+  .official-table th {
+    font-weight: 700;
+    text-align: center;
+  }
+
+  .official-location-table {
+    font-size: 10.5pt;
+  }
+
+  .official-location-table th,
+  .official-location-table td {
+    padding: 4px 5px;
+  }
+
+  .official-image-wrapper {
+    margin-top: 5mm;
+    text-align: center;
+    background-color: #ffffff !important;
+  }
+
+  .official-image {
+    max-width: 100%;
+    max-height: 165mm;
+    object-fit: contain;
+    border: 1px solid #4b5563;
+    background-color: #ffffff !important;
+  }
+
+  .official-caption {
+    margin-top: 3mm;
+    font-size: 12pt;
+    text-align: center;
+    background-color: #ffffff !important;
+  }
+
+  .official-note {
+    margin-top: 5mm;
+    border: 1px solid #9ca3af;
+    padding: 5mm;
+    font-size: 12.5pt;
+    text-align: justify;
+    background-color: #ffffff !important;
+  }
+
+  .official-emphasis {
+    font-weight: 700;
+  }
+
+  .official-small-text {
+    font-size: 12pt;
+    line-height: 1.5;
+  }
+
+  .official-signature {
+    margin-top: 22mm;
+    text-align: right;
+    font-size: 13pt;
+    background-color: #ffffff !important;
+  }
+
+  .official-signature-line {
+    display: inline-block;
+    min-width: 70mm;
+    border-bottom: 1px solid #111827;
+    background-color: #ffffff !important;
+  }
+
+  a {
+    color: #111827 !important;
+    text-decoration: none !important;
+  }
+}

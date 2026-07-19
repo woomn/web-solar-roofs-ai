@@ -56,7 +56,7 @@ export default function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="w-64 shrink-0 bg-slate-950 px-6 py-7 text-white">
+    <aside className="no-print w-64 shrink-0 bg-slate-950 px-6 py-7 text-white">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Solar Roof AI</h1>
         <p className="mt-1 text-sm text-slate-400">GeoTIFF Solar Analysis</p>

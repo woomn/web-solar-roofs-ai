@@ -3,7 +3,7 @@ import { UploadCloud } from "lucide-react";
 
 export default function Navbar() {
   return (
-    <header className="flex h-16 items-center justify-between border-b border-slate-200 bg-white px-8">
+    <header className="no-print flex h-16 items-center justify-between border-b border-slate-200 bg-white px-8">
       <div>
         <h2 className="text-xl font-bold text-emerald-700">Solar Roof AI</h2>
         <p className="text-xs text-slate-500">
