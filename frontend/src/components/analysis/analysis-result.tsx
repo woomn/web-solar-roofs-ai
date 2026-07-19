@@ -76,9 +76,55 @@ type DetectionResult = {
   result_image: string;
 };
 
+type AnalysisHistoryItem = {
+  id: string;
+  analyzed_at: string;
+  metadata: GeoTiffAnalysis;
+  detection: DetectionResult;
+};
+
 type BackendErrorResponse = {
   detail?: string | string[];
 };
+
+const HISTORY_KEY = "solar_analysis_history";
+
+function createHistoryId() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function saveAnalysisHistory(
+  metadata: GeoTiffAnalysis,
+  detection: DetectionResult,
+) {
+  const storedHistory = localStorage.getItem(HISTORY_KEY);
+
+  let history: AnalysisHistoryItem[] = [];
+
+  if (storedHistory) {
+    try {
+      history = JSON.parse(storedHistory);
+    } catch {
+      history = [];
+    }
+  }
+
+  const newItem: AnalysisHistoryItem = {
+    id: createHistoryId(),
+    analyzed_at: new Date().toISOString(),
+    metadata,
+    detection,
+  };
+
+  // เก็บล่าสุดไว้ด้านบน และจำกัดไม่เกิน 20 รายการ
+  const updatedHistory = [newItem, ...history].slice(0, 20);
+
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(updatedHistory));
+}
 
 export default function AnalysisResult() {
   const [metadata, setMetadata] = useState<GeoTiffAnalysis | null>(null);
@@ -131,9 +177,9 @@ export default function AnalysisResult() {
         }),
       });
 
-      const data = (await response
-        .json()
-        .catch(() => null)) as DetectionResult & BackendErrorResponse;
+      const data = (await response.json().catch(() => null)) as
+        | (DetectionResult & BackendErrorResponse)
+        | null;
 
       if (!response.ok) {
         const detail = data?.detail;
@@ -145,7 +191,15 @@ export default function AnalysisResult() {
         throw new Error(detail || "Backend detection error");
       }
 
+      if (!data) {
+        throw new Error("Backend ไม่ได้ส่งข้อมูลผลลัพธ์กลับมา");
+      }
+
       localStorage.setItem("geotiff_detection", JSON.stringify(data));
+
+      // บันทึกลง History หลังจาก detect สำเร็จ
+      saveAnalysisHistory(metadata, data);
+
       setResult(data);
     } catch (error) {
       if (error instanceof Error) {
