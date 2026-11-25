@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { formatNumber, readLatest, useStorageReady } from "@/lib/analysis";
+import { formatNumber } from "@/lib/analysis/formatters";
+import { readLatest, useStorageReady } from "@/lib/analysis/storage";
 import DetectionImageViewer from "@/components/analysis/detection-image-viewer";
 
 export default function AnalysisResult() {

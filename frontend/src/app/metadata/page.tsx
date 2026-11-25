@@ -1,4 +1,4 @@
-import MetadataResult from "@/components/metadata/metadataresult";
+import MetadataResult from "@/components/metadata/metadata-result";
 import WorkflowSteps from "@/components/layout/workflow-steps";
 
 export default function MetadataPage() {

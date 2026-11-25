@@ -3,7 +3,9 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { formatNumber, readLatest, readPending, runAnalysis, useStorageReady } from "@/lib/analysis";
+import { runAnalysis } from "@/lib/analysis/api";
+import { formatNumber } from "@/lib/analysis/formatters";
+import { readLatest, readPending, useStorageReady } from "@/lib/analysis/storage";
 
 export default function MetadataResult() {
   const router = useRouter();

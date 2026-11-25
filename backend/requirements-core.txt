@@ -1,0 +1,7 @@
+fastapi==0.142.2
+numpy==2.4.3
+Pillow==12.3.0
+pydantic==2.13.5
+python-multipart==0.0.32
+rasterio==1.5.0
+uvicorn==0.54.0

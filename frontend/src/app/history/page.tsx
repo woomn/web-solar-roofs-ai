@@ -12,7 +12,9 @@ import {
   Zap,
 } from "lucide-react";
 
-import { formatAnalysisDate, formatNumber, readHistory, useStorageReady, writeHistory, type AnalysisRecord } from "@/lib/analysis";
+import { formatAnalysisDate, formatNumber } from "@/lib/analysis/formatters";
+import { readHistory, useStorageReady, writeHistory } from "@/lib/analysis/storage";
+import type { AnalysisRecord } from "@/lib/analysis/types";
 
 export default function HistoryPage() {
   const ready = useStorageReady();

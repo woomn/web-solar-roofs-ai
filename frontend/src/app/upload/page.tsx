@@ -1,4 +1,4 @@
-import UploadBox from "@/components/upload/uploadbox";
+import UploadBox from "@/components/upload/upload-box";
 import WorkflowSteps from "@/components/layout/workflow-steps";
 
 export default function UploadPage() {

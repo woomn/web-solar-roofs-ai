@@ -4,7 +4,9 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useDropzone, type FileRejection } from "react-dropzone";
 import { FileCheck2, Upload } from "lucide-react";
-import { solarRequest, writePending, type GeoTiffAnalysis, type UploadRequirements } from "@/lib/analysis";
+import { solarRequest } from "@/lib/analysis/api";
+import { writePending } from "@/lib/analysis/storage";
+import type { GeoTiffAnalysis, UploadRequirements } from "@/lib/analysis/types";
 
 export default function UploadBox() {
   const router = useRouter();

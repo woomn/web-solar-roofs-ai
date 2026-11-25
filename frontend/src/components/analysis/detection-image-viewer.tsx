@@ -2,7 +2,9 @@
 
 import Image from "next/image";
 import { useEffect, useId, useRef, useState, type ComponentType } from "react";
-import { formatNumber, outputUrl, type DetectedLocation, type DetectionResult, type GeoTiffAnalysis } from "@/lib/analysis";
+import { outputUrl } from "@/lib/analysis/api";
+import { formatNumber } from "@/lib/analysis/formatters";
+import type { DetectedLocation, DetectionResult, GeoTiffAnalysis } from "@/lib/analysis/types";
 
 type RegionShapes = Record<string, [number, number][]>;
 
