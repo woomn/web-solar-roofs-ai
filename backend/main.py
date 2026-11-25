@@ -46,6 +46,7 @@ UPLOAD_DIR = BASE_DIR / "uploads"
 OUTPUT_DIR = BASE_DIR / "outputs"
 
 MODEL_PATH = Path(os.environ.get("SOLAR_MODEL_PATH", BASE_DIR / "best.pt"))
+SAMPLE_PATH = Path(os.environ.get("SOLAR_SAMPLE_GEOTIFF", BASE_DIR / "sample.tif"))
 logger = logging.getLogger(__name__)
 
 # รับไฟล์เล็กกว่า 1024×1024 ได้
@@ -134,6 +135,7 @@ def upload_requirements():
         "min_size": MIN_SIZE,
         "max_size": MAX_SIZE,
         "min_bands": MIN_BANDS,
+        "sample_available": is_geotiff(SAMPLE_PATH.name) and SAMPLE_PATH.is_file(),
         "recommended_min_gsd": RECOMMENDED_MIN_GSD,
         "max_gsd": MAX_GSD,
     }
@@ -714,6 +716,17 @@ def analyze_geotiff(file: UploadFile = File(...)):
     finally:
         if not accepted:
             file_path.unlink(missing_ok=True)
+
+
+@app.post("/sample-geotiff")
+def analyze_sample_geotiff():
+    if not is_geotiff(SAMPLE_PATH.name):
+        raise HTTPException(status_code=404, detail="ยังไม่ได้ตั้งค่าภาพตัวอย่าง")
+    try:
+        with SAMPLE_PATH.open("rb") as sample:
+            return analyze_geotiff(UploadFile(file=sample, filename=SAMPLE_PATH.name))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="ยังไม่ได้ตั้งค่าภาพตัวอย่าง")
 
 
 # ==========================

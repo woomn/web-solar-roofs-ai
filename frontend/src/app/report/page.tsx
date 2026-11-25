@@ -8,14 +8,8 @@ import { useSearchParams } from "next/navigation";
 import {
   AlertTriangle,
   ArrowLeft,
-  BrainCircuit,
   Download,
-  FileText,
-  Gauge,
-  Layers3,
   MapPin,
-  Ruler,
-  Zap,
 } from "lucide-react";
 
 import {
@@ -91,150 +85,38 @@ function ReportView({ record }: { record: AnalysisRecord }) {
         imageStatus={imageStatus}
       />
 
-      <div className="no-print space-y-8">
-        <div className="rounded-[32px] border border-slate-200 bg-white p-5 shadow-sm sm:p-8">
-          <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
-            <div>
-              <div className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700">
-                <FileText className="h-4 w-4" />
-                Solar Roof AI Report
-              </div>
-
-              <h1 className="mt-5 text-3xl font-bold text-slate-900">
-                รายงานผลตรวจจับแผงโซลาร์เซลล์
-              </h1>
-
-              <p className="mt-3 max-w-3xl break-words text-slate-500">
-                รายงานนี้สรุปผลจากการวิเคราะห์ไฟล์ GeoTIFF ด้วย YOLO
-                Segmentation โดยใช้ข้อมูล Metadata ของภาพเพื่อคำนวณพื้นที่จริง
-                และพิกัดตำแหน่งของพื้นที่ที่ตรวจพบ
-              </p>
-
-              <p className="mt-3 break-words text-sm text-slate-400">
-                ไฟล์ที่วิเคราะห์: {metadata.filename}
-              </p>
+      <div className="no-print mx-auto max-w-7xl space-y-5">
+        <header className="rounded-3xl border border-slate-200 bg-white p-5 sm:p-7">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="min-w-0">
+              <h1 className="text-2xl font-bold text-slate-950 sm:text-3xl">รายงานผลตรวจจับแผงโซลาร์เซลล์</h1>
+              <p className="mt-2 break-all text-sm font-medium text-slate-700">{metadata.filename}</p>
               <p className="mt-1 text-sm text-slate-600">วิเคราะห์เมื่อ {formatAnalysisDate(analyzedAt)}</p>
             </div>
+            <button
+              type="button"
+              onClick={() => window.print()}
+              disabled={imageStatus === "loading"}
+              className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-50"
+            >
+              <Download className="h-4 w-4" aria-hidden="true" />
+              {imageStatus === "loading" ? "กำลังโหลดภาพ…" : "พิมพ์ / บันทึกเป็น PDF"}
+            </button>
           </div>
-        </div>
-
-        {detectedRegionCount === 0 && <p className="rounded-xl bg-slate-100 p-4 text-sm text-slate-700">โมเดลไม่พบผลที่ผ่านเกณฑ์ในภาพนี้</p>}
-        <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-5">
-          <SummaryCard
-            icon={<Layers3 className="h-6 w-6 text-blue-600" />}
-            label="Detected Solar Regions"
-            value={formatNumber(detectedRegionCount, 0)}
-            unit="regions"
-          />
-
-          <SummaryCard
-            icon={<Gauge className="h-6 w-6 text-emerald-600" />}
-            label="คะแนนโมเดลเฉลี่ย"
-            value={detectedRegionCount ? formatNumber(result.confidence) : "—"}
-            unit={detectedRegionCount ? "%" : ""}
-          />
-
-          <SummaryCard
-            icon={<Ruler className="h-6 w-6 text-purple-600" />}
-            label="Total Solar Rooftop Area"
-            value={formatNumber(result.detected_area_m2, 2)}
-            unit="m²"
-          />
-
-          <SummaryCard
-            icon={<BrainCircuit className="h-6 w-6 text-orange-600" />}
-            label="Estimated Capacity"
-            value={formatNumber(result.capacity_kwp, 2)}
-            unit="kWp"
-          />
-
-          <SummaryCard
-            icon={<Zap className="h-6 w-6 text-yellow-600" />}
-            label="Estimated Energy / Day"
-            value={formatNumber(result.daily_energy_kwh, 2)}
-            unit="kWh/day"
-          />
-        </div>
-
-        <div className="grid gap-8 lg:grid-cols-2">
-          <InfoSection title="File Information">
-            <InfoRow label="Filename" value={metadata.filename} />
-
-            <InfoRow
-              label="File Size"
-              value={`${formatNumber(metadata.file_size_mb, 2)} MB`}
-            />
-
-            <InfoRow
-              label="Image Size"
-              value={`${formatNumber(
-                metadata.metadata.width,
-                0,
-              )} × ${formatNumber(metadata.metadata.height, 0)} px`}
-            />
-
-            <InfoRow
-              label="Bands"
-              value={
-                metadata.metadata.bands
-                  ? `${metadata.metadata.bands} bands`
-                  : "N/A"
-              }
-            />
-
-            <InfoRow
-              label="Data Type"
-              value={metadata.metadata.dtype ?? "N/A"}
-            />
-          </InfoSection>
-
-          <InfoSection title="GeoTIFF Metadata">
-            <InfoRow
-              label="CRS"
-              value={
-                metadata.metadata.crs_epsg
-                  ? `EPSG:${metadata.metadata.crs_epsg}`
-                  : (metadata.metadata.crs ?? "Unknown")
-              }
-            />
-
-            <InfoRow
-              label="Projected CRS"
-              value={
-                metadata.metadata.crs_is_projected === undefined
-                  ? "N/A"
-                  : metadata.metadata.crs_is_projected
-                    ? "Yes"
-                    : "No"
-              }
-            />
-
-            <InfoRow
-              label="GSD"
-              value={`${formatNumber(
-                metadata.metadata.gsd_x,
-                4,
-              )} × ${formatNumber(metadata.metadata.gsd_y, 4)} m/pixel`}
-            />
-
-            <InfoRow
-              label="Pixel Area"
-              value={
-                metadata.metadata.pixel_area_m2 !== null
-                  ? `${formatNumber(
-                      metadata.metadata.pixel_area_m2,
-                      4,
-                    )} m²/pixel`
-                  : "N/A"
-              }
-            />
-
-            <InfoRow
-              label="Tile Size"
-              value={result.tile_size ? `${result.tile_size} × ${result.tile_size} px` : "ไม่มีข้อมูล"}
-            />
-          </InfoSection>
-        </div>
+          <dl className="mt-5 grid grid-cols-2 gap-4 border-t border-slate-200 pt-4 sm:grid-cols-3">
+            {[
+              ["บริเวณที่พบ", formatNumber(detectedRegionCount, 0)],
+              ["คะแนนโมเดลเฉลี่ย", detectedRegionCount ? `${formatNumber(result.confidence)}%` : "—"],
+              ["พื้นที่ที่ตรวจพบ", `${formatNumber(result.detected_area_m2, 1)} ตร.ม.`],
+            ].map(([label, value]) => (
+              <div key={label}>
+                <dt className="text-sm text-slate-600">{label}</dt>
+                <dd className="mt-1 text-xl font-semibold tabular-nums text-slate-950">{value}</dd>
+              </div>
+            ))}
+          </dl>
+          {detectedRegionCount === 0 && <p className="mt-3 text-sm text-slate-600">โมเดลไม่พบผลที่ผ่านเกณฑ์ในภาพนี้</p>}
+        </header>
 
         <DetectionImageViewer
           metadata={metadata}
@@ -243,161 +125,115 @@ function ReportView({ record }: { record: AnalysisRecord }) {
           LocationTable={ReportLocationTable}
         />
 
-        <div className="rounded-[32px] border border-slate-200 bg-white p-5 shadow-sm sm:p-8">
-          <h2 className="text-2xl font-bold text-slate-900">
-            Calculation Summary
-          </h2>
-
-          <p className="mt-3 text-sm leading-6 text-slate-500">
-            ใช้พื้นที่ของบริเวณที่โมเดลตรวจพบเพื่อประมาณกำลังติดตั้งและพลังงานต่อวัน
-          </p>
-
-          <div className="mt-6 grid gap-4 md:grid-cols-3">
-            <FormulaBox
-              label="Area Calculation"
-              value={areaFormula(result)}
-              result={`${formatNumber(result.detected_area_m2, 2)} m²`}
-            />
-
-            <FormulaBox
-              label="Capacity Estimate"
-              value={`${formatNumber(result.detected_area_m2, 2)} ÷ 5.5`}
-              result={`${formatNumber(result.capacity_kwp, 2)} kWp`}
-            />
-
-            <FormulaBox
-              label="Daily Energy Estimate"
-              value={`${formatNumber(result.capacity_kwp, 2)} × 5`}
-              result={`${formatNumber(result.daily_energy_kwh, 2)} kWh/day`}
-            />
+        <details className="rounded-3xl border border-slate-200 bg-white p-5 sm:p-7">
+          <summary className="cursor-pointer font-semibold text-slate-950">ข้อมูลไฟล์และระบบพิกัด</summary>
+          <div className="mt-4 grid gap-4 lg:grid-cols-2">
+            <InfoSection title="ข้อมูลไฟล์">
+              <InfoRow label="ขนาดไฟล์" value={`${formatNumber(metadata.file_size_mb)} MB`} />
+              <InfoRow label="ขนาดภาพ" value={`${formatNumber(metadata.metadata.width, 0)} × ${formatNumber(metadata.metadata.height, 0)} px`} />
+              <InfoRow label="จำนวนแถบข้อมูล" value={metadata.metadata.bands === undefined ? "ไม่มีข้อมูล" : String(metadata.metadata.bands)} />
+              <InfoRow label="ชนิดข้อมูล" value={metadata.metadata.dtype ?? "ไม่มีข้อมูล"} />
+            </InfoSection>
+            <InfoSection title="ข้อมูล GeoTIFF">
+              <InfoRow label="ระบบพิกัด (CRS)" value={metadata.metadata.crs_epsg ? `EPSG:${metadata.metadata.crs_epsg}` : (metadata.metadata.crs ?? "ไม่มีข้อมูล")} />
+              <InfoRow label="ระบบพิกัดแบบฉาย" value={metadata.metadata.crs_is_projected === undefined ? "ไม่มีข้อมูล" : metadata.metadata.crs_is_projected ? "ใช่" : "ไม่ใช่"} />
+              <InfoRow label="ความละเอียด (GSD)" value={`${formatNumber(metadata.metadata.gsd_x, 4)} × ${formatNumber(metadata.metadata.gsd_y, 4)} เมตร/พิกเซล`} />
+              <InfoRow label="พื้นที่ต่อพิกเซล" value={metadata.metadata.pixel_area_m2 === null ? "ไม่มีข้อมูล" : `${formatNumber(metadata.metadata.pixel_area_m2, 4)} ตร.ม./พิกเซล`} />
+              <InfoRow label="ขนาดส่วนภาพ" value={result.tile_size ? `${result.tile_size} × ${result.tile_size} px` : "ไม่มีข้อมูล"} />
+            </InfoSection>
           </div>
+        </details>
 
-          <div className="mt-6 rounded-2xl bg-amber-50 p-5 text-sm leading-6 text-amber-800">
-            หมายเหตุ: ค่ากำลังผลิตและพลังงานเป็นการประมาณเบื้องต้น
-            โดยใช้สมมติฐานพื้นที่ 5.5 m² ต่อ 1 kWp และ specific yield 5
-            kWh/kWp/day ไม่ใช่การคำนวณทางวิศวกรรมเต็มรูปแบบ
+        <details className="rounded-3xl border border-slate-200 bg-white p-5 sm:p-7">
+          <summary className="cursor-pointer font-semibold text-slate-950">วิธีคำนวณพื้นที่และประมาณการพลังงาน</summary>
+          <div className="mt-4 grid gap-4 md:grid-cols-3">
+            <FormulaBox label="พื้นที่ที่ตรวจพบ" value={areaFormula(result)} result={`${formatNumber(result.detected_area_m2, 1)} ตร.ม.`} />
+            <FormulaBox label="ประมาณการกำลังติดตั้ง" value={`${formatNumber(result.detected_area_m2, 1)} ÷ 5.5`} result={`${formatNumber(result.capacity_kwp, 1)} kWp`} />
+            <FormulaBox label="ประมาณการพลังงานต่อวัน" value={`${formatNumber(result.capacity_kwp, 1)} × 5`} result={`${formatNumber(result.daily_energy_kwh, 1)} kWh/วัน`} />
           </div>
-        </div>
+          <p className="mt-4 text-sm leading-6 text-slate-600">ใช้สมมติฐานพื้นที่ 5.5 ตร.ม. ต่อ 1 kWp และพลังงาน 5 kWh ต่อ kWp ต่อวัน ควรใช้ประกอบการประเมินเบื้องต้น</p>
+        </details>
 
-        <div className="flex flex-wrap gap-4">
-          <Link
-            href="/analysis"
-            className="inline-flex items-center gap-2 rounded-2xl border border-slate-300 px-6 py-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            กลับไป AI Detection
-          </Link>
-
-          <button
-            type="button"
-            onClick={() => window.print()}
-            disabled={imageStatus === "loading"}
-            className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-6 py-4 text-sm font-semibold text-white transition hover:bg-blue-700"
-          >
-            <Download className="h-4 w-4" />
-            {imageStatus === "loading" ? "กำลังโหลดภาพ…" : "พิมพ์ / บันทึกเป็น PDF"}
-          </button>
-        </div>
+        <Link href="/analysis" className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+          <ArrowLeft className="h-4 w-4" aria-hidden="true" /> กลับไปผลล่าสุด
+        </Link>
       </div>
     </>
   );
 }
 
 function ReportLocationTable({ locations, selectedId, viewerId, selectRegion }: RegionControls) {
+  if (!locations.length) return null;
+
   return (
-    <div className="rounded-[32px] border border-slate-200 bg-white p-5 shadow-sm sm:p-8">
-      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-        <div>
-          <div className="flex items-center gap-3">
-            <MapPin className="h-6 w-6 text-blue-600" />
+    <details className="rounded-3xl border border-slate-200 bg-white p-5 sm:p-7">
+      <summary className="cursor-pointer font-semibold text-slate-950">ตารางพิกัดและคะแนนโมเดล · {formatNumber(locations.length, 0)} บริเวณ</summary>
+    <div className="mt-3 overflow-hidden rounded-2xl border border-slate-200">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[760px] text-left text-sm">
+            <thead className="bg-slate-50 text-slate-500">
+              <tr>
+                <th className="px-5 py-4 font-semibold">บริเวณ</th>
+                <th className="px-5 py-4 font-semibold">คะแนนโมเดล</th>
+                <th className="px-5 py-4 font-semibold">พื้นที่</th>
+                <th className="px-5 py-4 font-semibold">จุดกึ่งกลางภาพ</th>
+                <th className="px-5 py-4 font-semibold">ละติจูด</th>
+                <th className="px-5 py-4 font-semibold">ลองจิจูด</th>
+              </tr>
+            </thead>
 
-            <h2 className="text-2xl font-bold text-slate-900">
-              Detected Locations Summary
-            </h2>
-          </div>
+            <tbody className="divide-y divide-slate-200 bg-white">
+              {locations.map((location) => (
+                <tr
+                  key={location.region_id}
+                  className={location.region_id === selectedId ? "bg-teal-50" : "transition hover:bg-slate-50"}
+                >
+                  <td className="px-5 py-4 font-semibold text-slate-900">
+                    <button
+                      type="button"
+                      onClick={(event) => selectRegion(location.region_id, event.currentTarget)}
+                      aria-controls={viewerId}
+                      aria-label={`ดูบริเวณ #${location.region_id} ในภาพ`}
+                      aria-pressed={location.region_id === selectedId}
+                      className="inline-flex min-h-10 items-center gap-2 rounded-lg px-3 font-semibold text-blue-800 hover:bg-blue-50 focus-visible:outline-2 focus-visible:outline-blue-700 aria-pressed:bg-teal-100 aria-pressed:text-teal-950"
+                    >
+                      <MapPin className="h-4 w-4" aria-hidden="true" />
+                      #{location.region_id}
+                    </button>
+                  </td>
 
-          <p className="mt-3 text-sm leading-6 text-slate-500">
-            {locations.length > 0 && "กดหมายเลขบริเวณเพื่อซูมและดูตำแหน่งในภาพด้านบน"}
-          </p>
-        </div>
+                  <td className="px-5 py-4">
+                    <ConfidenceBadge value={location.confidence} />
+                  </td>
 
-        <div className="rounded-full bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700">
-          {locations.length} regions
+                  <td className="px-5 py-4 text-slate-700">
+                    {formatNumber(location.area_m2, 2)} ตร.ม.
+                  </td>
+
+                  <td className="px-5 py-4 text-slate-700">
+                    x={formatNumber(location.center_pixel.x, 2)}
+                    <br />
+                    y={formatNumber(location.center_pixel.y, 2)}
+                  </td>
+
+                  <td className="px-5 py-4 text-slate-700">
+                    {location.latitude !== null
+                      ? formatNumber(location.latitude, 7)
+                      : "—"}
+                  </td>
+
+                  <td className="px-5 py-4 text-slate-700">
+                    {location.longitude !== null
+                      ? formatNumber(location.longitude, 7)
+                      : "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
-
-      {locations.length === 0 ? (
-        <div className="mt-6 rounded-2xl bg-slate-50 p-6 text-sm text-slate-500">
-          ไม่พบข้อมูล Detected Locations
-        </div>
-      ) : (
-        <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[900px] text-left text-sm">
-              <thead className="bg-slate-50 text-slate-500">
-                <tr>
-                  <th className="px-5 py-4 font-semibold">Region</th>
-                  <th className="px-5 py-4 font-semibold">Confidence</th>
-                  <th className="px-5 py-4 font-semibold">Area</th>
-                  <th className="px-5 py-4 font-semibold">Center Pixel</th>
-                  <th className="px-5 py-4 font-semibold">Latitude</th>
-                  <th className="px-5 py-4 font-semibold">Longitude</th>
-                </tr>
-              </thead>
-
-              <tbody className="divide-y divide-slate-200 bg-white">
-                {locations.map((location) => (
-                  <tr
-                    key={location.region_id}
-                    className={location.region_id === selectedId ? "bg-teal-50" : "transition hover:bg-slate-50"}
-                  >
-                    <td className="px-5 py-4 font-semibold text-slate-900">
-                      <button
-                        type="button"
-                        onClick={(event) => selectRegion(location.region_id, event.currentTarget)}
-                        aria-controls={viewerId}
-                        aria-label={`ดูบริเวณ #${location.region_id} ในภาพ`}
-                        aria-pressed={location.region_id === selectedId}
-                        className="inline-flex min-h-10 items-center gap-2 rounded-lg px-3 font-semibold text-blue-800 hover:bg-blue-50 focus-visible:outline-2 focus-visible:outline-blue-700 aria-pressed:bg-teal-100 aria-pressed:text-teal-950"
-                      >
-                        <MapPin className="h-4 w-4" aria-hidden="true" />
-                        #{location.region_id}
-                      </button>
-                    </td>
-
-                    <td className="px-5 py-4">
-                      <ConfidenceBadge value={location.confidence} />
-                    </td>
-
-                    <td className="px-5 py-4 text-slate-700">
-                      {formatNumber(location.area_m2, 2)} m²
-                    </td>
-
-                    <td className="px-5 py-4 text-slate-700">
-                      x={formatNumber(location.center_pixel.x, 2)}
-                      <br />
-                      y={formatNumber(location.center_pixel.y, 2)}
-                    </td>
-
-                    <td className="px-5 py-4 text-slate-700">
-                      {location.latitude !== null
-                        ? formatNumber(location.latitude, 7)
-                        : "N/A"}
-                    </td>
-
-                    <td className="px-5 py-4 text-slate-700">
-                      {location.longitude !== null
-                        ? formatNumber(location.longitude, 7)
-                        : "N/A"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-    </div>
+    </details>
   );
 }
 
@@ -886,32 +722,6 @@ function OfficialPrintReport({
         </div>
       </section>
     </article>
-  );
-}
-
-function SummaryCard({
-  icon,
-  label,
-  value,
-  unit,
-}: {
-  icon: ReactNode;
-  label: string;
-  value: string;
-  unit: string;
-}) {
-  return (
-    <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
-      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-50">
-        {icon}
-      </div>
-
-      <div className="mt-5 text-sm font-medium text-slate-500">{label}</div>
-
-      <div className="mt-2 text-3xl font-bold text-slate-900">{value}</div>
-
-      <div className="mt-1 text-sm text-slate-500">{unit}</div>
-    </div>
   );
 }
 

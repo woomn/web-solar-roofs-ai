@@ -36,6 +36,10 @@ Next.js forwards `/api/solar/*` to FastAPI. The default target is
 `http://127.0.0.1:8000` from the Next.js server. Set `SOLAR_BACKEND_URL` in the
 Next.js environment before building when the API runs on another origin.
 
+To enable the sample button on the upload page, provide a GeoTIFF you are
+allowed to share at `backend/sample.tif`, or set `SOLAR_SAMPLE_GEOTIFF` to
+its absolute path. The configured sample is available to anyone who can use the web app.
+
 Analysis history is stored in the current browser. The backend needs persistent
 `uploads` and `outputs` directories if files and report images must survive
 server restarts or redeployments.

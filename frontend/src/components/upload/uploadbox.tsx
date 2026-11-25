@@ -10,7 +10,7 @@ export default function UploadBox() {
   const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
   const [requirements, setRequirements] = useState<UploadRequirements | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState<"upload" | "sample" | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -38,20 +38,26 @@ export default function UploadBox() {
     onDrop,
     accept: { "image/tiff": [".tif", ".tiff"], "application/octet-stream": [".tif", ".tiff"] },
     multiple: false,
-    disabled: loading,
+    disabled: Boolean(loading),
     noClick: true,
     noKeyboard: true,
   });
 
   async function checkFile(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!file || loading) return;
-    setLoading(true);
+    if (!file) return;
+    const form = new FormData();
+    form.append("file", file);
+    await loadMetadata("upload", form);
+  }
+
+  async function loadMetadata(source: "upload" | "sample", body?: FormData) {
+    if (loading) return;
+    setLoading(source);
     setError("");
     try {
-      const form = new FormData();
-      form.append("file", file);
-      const data = await solarRequest<GeoTiffAnalysis>("analyze-geotiff", { method: "POST", body: form });
+      const endpoint = source === "sample" ? "sample-geotiff" : "analyze-geotiff";
+      const data = await solarRequest<GeoTiffAnalysis>(endpoint, { method: "POST", body });
       try {
         writePending(data);
       } catch {
@@ -61,12 +67,12 @@ export default function UploadBox() {
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "ตรวจไฟล์ไม่สำเร็จ กรุณาลองใหม่");
     } finally {
-      setLoading(false);
+      setLoading(null);
     }
   }
 
   return (
-    <form onSubmit={checkFile} className="space-y-5" aria-busy={loading}>
+    <form onSubmit={checkFile} className="space-y-5" aria-busy={Boolean(loading)}>
       <div {...getRootProps()} className={`rounded-3xl border-2 border-dashed p-6 text-center sm:p-12 ${isDragActive ? "border-blue-600 bg-blue-50" : "border-slate-300 bg-white"}`}>
         {file ? <FileCheck2 className="mx-auto mb-4 h-9 w-9 text-emerald-700" aria-hidden="true" /> : <Upload className="mx-auto mb-4 h-9 w-9 text-blue-700" aria-hidden="true" />}
         <p className="break-all text-lg font-semibold text-slate-950">{file ? file.name : "ลากไฟล์ GeoTIFF มาวางที่นี่"}</p>
@@ -88,9 +94,16 @@ export default function UploadBox() {
           </>
         ) : <p>ระบบจะตรวจขนาดภาพ ระบบพิกัด และความละเอียดเมื่อส่งไฟล์</p>}
       </div>
-      <button type="submit" disabled={!file || loading} className="rounded-xl bg-blue-700 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-50">
-        {loading ? "กำลังตรวจไฟล์…" : "ตรวจข้อมูลภาพ"}
-      </button>
+      <div className="flex flex-wrap gap-3">
+        <button type="submit" disabled={!file || Boolean(loading)} className="rounded-xl bg-blue-700 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-50">
+          {loading === "upload" ? "กำลังตรวจไฟล์…" : "ตรวจข้อมูลภาพ"}
+        </button>
+        {requirements?.sample_available && (
+          <button type="button" onClick={() => loadMetadata("sample")} disabled={Boolean(loading)} className="rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-blue-800 hover:bg-blue-50 disabled:opacity-50">
+            {loading === "sample" ? "กำลังเปิดภาพตัวอย่าง…" : "ลองด้วยภาพตัวอย่าง"}
+          </button>
+        )}
+      </div>
       {loading && <span role="status" className="sr-only">กำลังตรวจข้อมูลภาพ กรุณารอ</span>}
     </form>
   );
