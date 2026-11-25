@@ -2,7 +2,7 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 ## Getting Started
 
-First, run the development server:
+From the `frontend` directory, install dependencies with `npm ci` and start the development server:
 
 ```bash
 npm run dev
@@ -19,6 +19,26 @@ Open [http://localhost:3000](http://localhost:3000) with your browser to see the
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+
+## Solar Roof AI backend
+
+From the `backend` directory, install the runtime dependencies in your Python environment and start FastAPI:
+
+```bash
+python -m pip install fastapi uvicorn python-multipart numpy rasterio Pillow ultralytics
+python -m uvicorn main:app --port 8000
+```
+
+Detection loads the YOLO Segmentation checkpoint from `backend/best.pt` by default.
+To use a different checkpoint, set `SOLAR_MODEL_PATH` to its absolute path and restart FastAPI.
+
+Next.js forwards `/api/solar/*` to FastAPI. The default target is
+`http://127.0.0.1:8000` from the Next.js server. Set `SOLAR_BACKEND_URL` in the
+Next.js environment before building when the API runs on another origin.
+
+Analysis history is stored in the current browser. The backend needs persistent
+`uploads` and `outputs` directories if files and report images must survive
+server restarts or redeployments.
 
 ## Learn More
 

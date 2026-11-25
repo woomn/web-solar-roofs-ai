@@ -16,13 +16,13 @@ export default function RootLayout({
   return (
     <html lang="th">
       <body className="bg-slate-50 text-slate-900">
-        <div className="flex min-h-screen bg-slate-50">
+        <div className="flex min-h-screen flex-col bg-slate-50 lg:flex-row print:block print:min-h-0">
           <Sidebar />
 
-          <div className="flex min-w-0 flex-1 flex-col">
+          <div className="flex min-w-0 flex-1 flex-col print:block">
             <Navbar />
 
-            <main className="flex-1 px-6 py-8 lg:px-10">{children}</main>
+            <main className="flex-1 px-4 py-6 sm:px-6 lg:px-10 print:p-0">{children}</main>
           </div>
         </div>
       </body>

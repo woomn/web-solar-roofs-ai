@@ -4,15 +4,22 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from pathlib import Path
+import json
+import logging
+import math
 import os
 import shutil
 import uuid
+from datetime import datetime, timezone
+from tempfile import TemporaryDirectory
+from threading import Lock
 
 import numpy as np
 import rasterio
+from rasterio.crs import CRS
 from rasterio.windows import Window
 from rasterio.warp import transform as transform_coords
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 from ultralytics import YOLO
 
 
@@ -38,11 +45,13 @@ BASE_DIR = Path(__file__).resolve().parent
 UPLOAD_DIR = BASE_DIR / "uploads"
 OUTPUT_DIR = BASE_DIR / "outputs"
 
-MODEL_PATH = BASE_DIR / "best.pt"
+MODEL_PATH = Path(os.environ.get("SOLAR_MODEL_PATH", BASE_DIR / "best.pt"))
+logger = logging.getLogger(__name__)
 
 # รับไฟล์เล็กกว่า 1024×1024 ได้
 MIN_SIZE = 256
 MAX_SIZE = 5000
+MIN_BANDS = 3
 
 # ขนาด tile สำหรับ YOLO
 TILE_SIZE = 1024
@@ -70,6 +79,7 @@ app.mount("/outputs", StaticFiles(directory=str(OUTPUT_DIR)), name="outputs")
 # YOLO Model
 # ==========================
 model = None
+model_load_lock = Lock()
 
 
 def get_model():
@@ -81,8 +91,12 @@ def get_model():
             detail="ไม่พบไฟล์ best.pt กรุณาวางไว้ในโฟลเดอร์ backend",
         )
 
-    if model is None:
-        model = YOLO(str(MODEL_PATH))
+    with model_load_lock:
+        if model is None:
+            model = YOLO(str(MODEL_PATH))
+            if model.task != "segment":
+                model = None
+                raise HTTPException(status_code=500, detail="ระบบต้องใช้โมเดล YOLO Segmentation")
 
     return model
 
@@ -109,82 +123,59 @@ def root():
 # ==========================
 # Helper Functions
 # ==========================
-def is_geotiff(filename: str) -> bool:
-    name = filename.lower()
+def is_geotiff(filename: str | None) -> bool:
+    name = (filename or "").lower()
     return name.endswith(".tif") or name.endswith(".tiff")
+
+
+@app.get("/requirements")
+def upload_requirements():
+    return {
+        "min_size": MIN_SIZE,
+        "max_size": MAX_SIZE,
+        "min_bands": MIN_BANDS,
+        "recommended_min_gsd": RECOMMENDED_MIN_GSD,
+        "max_gsd": MAX_GSD,
+    }
+
+
+def metric_resolution(src):
+    _, meters_per_unit = src.crs.linear_units_factor
+    return tuple(resolution * meters_per_unit for resolution in src.res)
 
 
 def validate_metadata(src):
     errors = []
     warnings = []
-
     crs = src.crs
-    gsd_x, gsd_y = src.res
 
-    abs_gsd_x = abs(gsd_x)
-    abs_gsd_y = abs(gsd_y)
-
-    # 1. ขนาดภาพต้องอยู่ในช่วง MIN_SIZE×MIN_SIZE ถึง MAX_SIZE×MAX_SIZE px
-    if src.width < MIN_SIZE or src.height < MIN_SIZE:
+    if src.driver != "GTiff":
+        errors.append("ไฟล์ต้องอยู่ในรูปแบบ GeoTIFF")
+    if not (MIN_SIZE <= src.width <= MAX_SIZE and MIN_SIZE <= src.height <= MAX_SIZE):
         errors.append(
-            f"ขนาดภาพต้องไม่น้อยกว่า {MIN_SIZE}×{MIN_SIZE} px "
-            f"แต่ไฟล์นี้คือ {src.width}×{src.height} px"
+            f"ความกว้างและความสูงต้องอยู่ระหว่าง {MIN_SIZE}–{MAX_SIZE} px "
+            f"(ไฟล์นี้ {src.width}×{src.height} px)"
         )
-
-    if src.width > MAX_SIZE or src.height > MAX_SIZE:
-        errors.append(
-            f"ขนาดภาพต้องไม่เกิน {MAX_SIZE}×{MAX_SIZE} px "
-            f"แต่ไฟล์นี้คือ {src.width}×{src.height} px"
-        )
-
-    # 2. ต้องมีอย่างน้อย 3 bands
-    if src.count < 3:
-        errors.append(
-            f"ไฟล์ต้องมีอย่างน้อย 3 bands สำหรับ RGB แต่ไฟล์นี้มี {src.count} band"
-        )
-
-    # 3. ต้องมี CRS
-    if crs is None:
-        errors.append("ไม่พบ CRS ในไฟล์ GeoTIFF")
-
-    # 4. CRS ต้องเป็น Projected CRS เช่น UTM
-    if crs is not None and not crs.is_projected:
-        errors.append(
-            "CRS ต้องเป็น Projected CRS เช่น UTM เพื่อให้ Pixel Size เป็นหน่วยเมตร"
-        )
-
-    # 5. Pixel Size / GSD ต้องถูกต้อง
-    if abs_gsd_x == 0 or abs_gsd_y == 0:
-        errors.append("Pixel Size หรือ GSD ไม่ถูกต้อง")
-
-    # 6. GSD
-    # อนุญาต GSD ต่ำกว่า 0.3 เพราะภาพละเอียดกว่า
-    # ไม่อนุญาต GSD มากกว่า 0.6 เพราะภาพหยาบเกินไป
-    if crs is not None and crs.is_projected:
-        if abs_gsd_x > MAX_GSD:
+    if src.count < MIN_BANDS:
+        errors.append("ไฟล์ต้องมีอย่างน้อย 3 bands สำหรับ RGB")
+    if crs is None or not crs.is_projected:
+        errors.append("ต้องมีระบบพิกัดแบบ Projected CRS เช่น UTM")
+    else:
+        gsd_x, gsd_y = metric_resolution(src)
+        if not all(math.isfinite(value) and value > 0 for value in (gsd_x, gsd_y)):
+            errors.append("ค่า GSD ในไฟล์ไม่ถูกต้อง")
+        elif max(gsd_x, gsd_y) > MAX_GSD + 1e-8:
             errors.append(
-                f"GSD X ต้องไม่เกิน {MAX_GSD} m/pixel "
-                f"แต่ไฟล์นี้คือ {abs_gsd_x} m/pixel"
+                f"GSD ทั้งสองแกนต้องไม่เกิน {MAX_GSD} เมตร/พิกเซล "
+                f"(ไฟล์นี้ {gsd_x:.4f} × {gsd_y:.4f})"
             )
-
-        if abs_gsd_y > MAX_GSD:
-            errors.append(
-                f"GSD Y ต้องไม่เกิน {MAX_GSD} m/pixel "
-                f"แต่ไฟล์นี้คือ {abs_gsd_y} m/pixel"
-            )
-
-        if abs_gsd_x < RECOMMENDED_MIN_GSD or abs_gsd_y < RECOMMENDED_MIN_GSD:
+        elif min(gsd_x, gsd_y) < RECOMMENDED_MIN_GSD - 1e-8:
             warnings.append(
-                f"GSD ต่ำกว่า {RECOMMENDED_MIN_GSD} m/pixel "
-                "ซึ่งเป็นภาพละเอียดกว่า dataset ที่ใช้ train "
-                "โมเดลอาจตรวจจับได้ แต่ขนาด object ในภาพอาจต่างจากตอน train"
+                f"GSD ต่ำกว่า {RECOMMENDED_MIN_GSD} เมตร/พิกเซล "
+                "ภาพมีความละเอียดสูงกว่าช่วงที่แนะนำ ควรตรวจผลจากภาพประกอบ"
             )
 
-    return {
-        "is_valid": len(errors) == 0,
-        "errors": errors,
-        "warnings": warnings,
-    }
+    return {"is_valid": not errors, "errors": errors, "warnings": warnings}
 
 
 def normalize_band(band: np.ndarray) -> np.ndarray:
@@ -362,100 +353,58 @@ def polygon_centroid_pixel(points):
     return float(centroid_x), float(centroid_y)
 
 
-def build_detected_locations(tif_path: Path, detections, pixel_area_m2: float):
-    """
-    สร้างข้อมูลตำแหน่งของแต่ละ region ที่ตรวจพบ
+def equal_area_crs(src):
+    center = src.transform * (src.width / 2, src.height / 2)
+    lon, lat = transform_coords(src.crs, "EPSG:4326", [center[0]], [center[1]])
+    return CRS.from_proj4(
+        f"+proj=laea +lat_0={lat[0]} +lon_0={lon[0]} +datum=WGS84 +units=m +no_defs"
+    )
 
-    Output ต่อ 1 region:
-    - region_id
-    - confidence
-    - mask_pixel_area
-    - area_m2
-    - center_pixel
-    - map_coordinate
-    - latitude / longitude
 
-    หมายเหตุ:
-    polygon ใน detections ต้องเป็น global pixel coordinate แล้ว
-    คือมีการบวก x_offset, y_offset จาก tile แล้ว
-    """
+def ground_area(src, area_crs, polygon):
+    points = np.asarray(polygon, dtype=np.float64)
+    columns, rows = points.T
+    map_x, map_y = src.transform * (columns, rows)
+    x, y = transform_coords(src.crs, area_crs, map_x, map_y)
+    area_points = np.column_stack((x, y))
+    if not np.isfinite(area_points).all():
+        raise ValueError("Invalid projected polygon")
+    # Translate before applying the shoelace formula to preserve precision.
+    return polygon_area_pixels(area_points - area_points[0])
+
+
+def image_ground_area(src, area_crs):
+    return ground_area(
+        src, area_crs, [(0, 0), (src.width, 0), (src.width, src.height), (0, src.height)]
+    )
+
+
+def build_detected_locations(src, area_crs, detections):
     locations = []
+    total_area = 0.0
+    crs_text = src.crs.to_string()
 
-    with rasterio.open(tif_path) as src:
-        crs_text = src.crs.to_string() if src.crs else None
+    for index, detection in enumerate(detections, start=1):
+        polygon = detection["polygon"]
+        center_x, center_y = polygon_centroid_pixel(polygon)
+        map_x, map_y = src.transform * (center_x, center_y)
+        longitude, latitude = transform_coords(src.crs, "EPSG:4326", [map_x], [map_y])
+        area_m2 = ground_area(src, area_crs, polygon)
+        total_area += area_m2
 
-        for index, detection in enumerate(detections, start=1):
-            polygon = detection.get("polygon")
+        locations.append({
+            "region_id": index,
+            "confidence": round(detection["confidence"], 2),
+            "mask_pixel_area": round(detection["area_px"], 2),
+            "area_m2": round(area_m2, 2),
+            "center_pixel": {"x": round(center_x, 2), "y": round(center_y, 2)},
+            "map_coordinate": {"x": round(map_x, 3), "y": round(map_y, 3), "crs": crs_text},
+            "latitude": round(latitude[0], 7),
+            "longitude": round(longitude[0], 7),
+            "bbox_pixel": [round(value, 2) for value in detection["bbox"]],
+        })
 
-            if polygon is None:
-                continue
-
-            polygon = np.asarray(polygon, dtype=np.float64)
-
-            if len(polygon) < 3:
-                continue
-
-            center_x, center_y = polygon_centroid_pixel(polygon)
-
-            # แปลง pixel coordinate เป็น map coordinate
-            # src.transform ใช้รูปแบบ col=x, row=y
-            map_x, map_y = src.transform * (center_x, center_y)
-
-            latitude = None
-            longitude = None
-
-            # แปลงจาก CRS ของภาพ เช่น UTM ไปเป็น EPSG:4326 lat/lon
-            if src.crs:
-                try:
-                    lon_list, lat_list = transform_coords(
-                        src.crs,
-                        "EPSG:4326",
-                        [map_x],
-                        [map_y],
-                    )
-
-                    longitude = float(lon_list[0])
-                    latitude = float(lat_list[0])
-
-                except Exception:
-                    latitude = None
-                    longitude = None
-
-            mask_pixel_area = float(
-                detection.get("area_px", polygon_area_pixels(polygon))
-            )
-
-            raw_confidence = float(detection.get("confidence", 0.0))
-
-            # ในโค้ดนี้ confidence ถูกเก็บเป็น percent อยู่แล้ว เช่น 84.25
-            # แต่เผื่ออนาคตถ้ามาเป็น 0.8425 ก็แปลงให้
-            confidence_percent = (
-                raw_confidence * 100 if raw_confidence <= 1 else raw_confidence
-            )
-
-            area_m2 = mask_pixel_area * pixel_area_m2
-
-            locations.append(
-                {
-                    "region_id": index,
-                    "confidence": round(confidence_percent, 2),
-                    "mask_pixel_area": round(mask_pixel_area, 2),
-                    "area_m2": round(area_m2, 2),
-                    "center_pixel": {
-                        "x": round(center_x, 2),
-                        "y": round(center_y, 2),
-                    },
-                    "map_coordinate": {
-                        "x": round(float(map_x), 3),
-                        "y": round(float(map_y), 3),
-                        "crs": crs_text,
-                    },
-                    "latitude": round(latitude, 7) if latitude is not None else None,
-                    "longitude": round(longitude, 7) if longitude is not None else None,
-                }
-            )
-
-    return locations
+    return locations, total_area
 
 
 def bbox_iou(box_a, box_b) -> float:
@@ -511,21 +460,91 @@ def deduplicate_detections(detections, iou_threshold: float = 0.5):
     return kept
 
 
+def layout_region_labels(regions, image_size):
+    """Place measured label boxes in preview pixels without covering other labels."""
+    width, height = image_size
+    padding = 3
+    region_boxes = [box for _, box, _, _, _ in regions]
+    placed = []
+
+    def intersects(rect, other, gap=0):
+        return (
+            rect[0] < other[2] + gap
+            and rect[2] > other[0] - gap
+            and rect[1] < other[3] + gap
+            and rect[3] > other[1] - gap
+        )
+
+    for label, box, label_width, label_height, text_box in regions:
+        x1, y1, x2, y2 = box
+        cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
+
+        def bounded_rect(x, y):
+            left = min(max(padding, round(x)), width - padding - label_width)
+            top = min(max(padding, round(y)), height - padding - label_height)
+            return left, top, left + label_width, top + label_height
+
+        def label_free(rect):
+            return not any(intersects(rect, item[2], padding) for item in placed)
+
+        def clear(rect):
+            return label_free(rect) and not any(intersects(rect, region, padding) for region in region_boxes)
+
+        nearby = []
+        for offset in (5, 15, 30, 50, 75, 110):
+            above, below = y1 - label_height - offset, y2 + offset
+            left, right = x1 - label_width - offset, x2 + offset
+            nearby.extend(bounded_rect(x, y) for x, y in (
+                (cx - label_width / 2, above),
+                (cx - label_width / 2, below),
+                (left, cy - label_height / 2),
+                (right, cy - label_height / 2),
+                (left, above), (right, above), (left, below), (right, below),
+            ))
+
+        rect = next((candidate for candidate in nearby if clear(candidate)), None)
+        if rect is None:
+            grid = [
+                bounded_rect(x, y)
+                for y in range(padding, height, label_height + padding)
+                for x in range(padding, width, label_width + padding)
+            ]
+            grid.sort(key=lambda cell: (cell[0] + label_width / 2 - cx) ** 2
+                      + (cell[1] + label_height / 2 - cy) ** 2)
+            rect = next((candidate for candidate in grid if clear(candidate)), None)
+            if rect is None:
+                rect = next((candidate for candidate in nearby + grid if label_free(candidate)), None)
+
+        if rect is not None:
+            placed.append((label, box, rect, text_box))
+
+    return placed
+
+
+def draw_region_labels(draw, image_size, regions, font):
+    labels = layout_region_labels(regions, image_size)
+
+    # Draw connectors beneath every label, so a later connector cannot obscure a number.
+    for _, (x1, y1, x2, y2), (left, top, right, bottom), _ in labels:
+        cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
+        end = (min(max(cx, left), right), min(max(cy, top), bottom))
+        start = (min(max(end[0], x1), x2), min(max(end[1], y1), y2))
+        draw.line([start, end], fill=(15, 23, 42, 255), width=4)
+        draw.line([start, end], fill=(255, 255, 255, 255), width=2)
+
+    for label, _, rect, (text_x, text_y, _, _) in labels:
+        left, top, _, _ = rect
+        draw.rounded_rectangle(rect, radius=4, fill=(15, 23, 42, 255))
+        draw.text((left + 6 - text_x, top + 4 - text_y), label, fill="white", font=font)
+
+
 def save_preview_and_result_images(
     tif_path: Path,
     input_preview_path: Path,
     result_image_path: Path,
     detections,
 ):
-    """
-    สร้างภาพ preview input และภาพ result ที่ overlay mask ให้เห็นชัดสำหรับ demo
-
-    สิ่งที่วาด:
-    1. mask สีแดง
-    2. เส้นขอบ mask สีเหลือง
-    3. bounding box สีฟ้า
-    4. จุดกลาง object สีเหลือง
-    """
+    """Render a clean overview with translucent masks and numbered callouts."""
     with rasterio.open(tif_path) as src:
         rgb = read_rgb_from_geotiff(src)
         width = src.width
@@ -554,70 +573,42 @@ def save_preview_and_result_images(
 
     preview.save(input_preview_path, quality=95)
 
-    result_base = preview.convert("RGBA")
-    overlay = Image.new("RGBA", result_base.size, (0, 0, 0, 0))
+    # Rasterize at 2× for smooth edges when the preview is scaled or zoomed.
+    overlay = Image.new("RGBA", (preview_width * 2, preview_height * 2))
     draw = ImageDraw.Draw(overlay)
+    x_scale, y_scale = preview_width / width, preview_height / height
+    polygons = [
+        [(float(x) * x_scale * 2, float(y) * y_scale * 2) for x, y in item["polygon"]]
+        for item in detections
+    ]
 
-    for detection in detections:
-        polygon = detection["polygon"]
+    # Draw fills together so overlapping masks do not darken the underlying photo.
+    for polygon in polygons:
+        draw.polygon(polygon, fill=(35, 173, 158, 47))
 
-        scaled_points = [
-            (float(x) * scale, float(y) * scale)
-            for x, y in polygon
-        ]
+    for color, stroke_width in (((8, 47, 43, 224), 6), ((115, 233, 212, 255), 3)):
+        for polygon in polygons:
+            draw.line(polygon + [polygon[0]], fill=color, width=stroke_width, joint="curve")
 
-        if len(scaled_points) < 3:
-            continue
+    overlay = overlay.resize(preview.size, resample_filter)
+    draw = ImageDraw.Draw(overlay)
+    try:
+        font = ImageFont.load_default(size=16)
+    except TypeError:
+        font = ImageFont.load_default()
 
-        # 1. วาด mask สีแดงโปร่งใส
-        draw.polygon(
-            scaled_points,
-            fill=(255, 0, 0, 150),
-        )
+    regions = []
+    for region_id, item in enumerate(detections, start=1):
+        x1, y1, x2, y2 = item["bbox"]
+        label = f"#{region_id}"
+        text_box = draw.textbbox((0, 0), label, font=font)
+        label_width = text_box[2] - text_box[0] + 12
+        label_height = text_box[3] - text_box[1] + 8
+        regions.append((label, (x1 * x_scale, y1 * y_scale, x2 * x_scale, y2 * y_scale),
+                        label_width, label_height, text_box))
 
-        # 2. วาดเส้นขอบ mask สีเหลือง
-        closed_points = scaled_points + [scaled_points[0]]
-
-        draw.line(
-            closed_points,
-            fill=(255, 255, 0, 255),
-            width=4,
-        )
-
-        # 3. วาด bounding box สีฟ้า
-        xs = [point[0] for point in scaled_points]
-        ys = [point[1] for point in scaled_points]
-
-        x1 = min(xs)
-        y1 = min(ys)
-        x2 = max(xs)
-        y2 = max(ys)
-
-        draw.rectangle(
-            [x1, y1, x2, y2],
-            outline=(0, 255, 255, 255),
-            width=3,
-        )
-
-        # 4. วาดจุดกลาง object เพื่อให้เห็น object เล็ก
-        center_x = (x1 + x2) / 2
-        center_y = (y1 + y2) / 2
-
-        radius = 6
-
-        draw.ellipse(
-            [
-                center_x - radius,
-                center_y - radius,
-                center_x + radius,
-                center_y + radius,
-            ],
-            fill=(255, 255, 0, 255),
-            outline=(0, 0, 0, 255),
-            width=2,
-        )
-
-    result = Image.alpha_composite(result_base, overlay).convert("RGB")
+    draw_region_labels(draw, preview.size, regions, font)
+    result = Image.alpha_composite(preview.convert("RGBA"), overlay).convert("RGB")
     result.save(result_image_path, quality=95)
 
 
@@ -625,7 +616,7 @@ def save_preview_and_result_images(
 # Analyze GeoTIFF Metadata
 # ==========================
 @app.post("/analyze-geotiff")
-async def analyze_geotiff(file: UploadFile = File(...)):
+def analyze_geotiff(file: UploadFile = File(...)):
     if not is_geotiff(file.filename):
         raise HTTPException(
             status_code=400,
@@ -637,6 +628,7 @@ async def analyze_geotiff(file: UploadFile = File(...)):
     safe_filename = f"{file_id}_{original_filename}"
     file_path = UPLOAD_DIR / safe_filename
 
+    accepted = False
     try:
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
@@ -644,8 +636,6 @@ async def analyze_geotiff(file: UploadFile = File(...)):
         with rasterio.open(file_path) as src:
             crs = src.crs
             bounds = src.bounds
-            gsd_x, gsd_y = src.res
-
             validation = validate_metadata(src)
 
             if not validation["is_valid"]:
@@ -663,11 +653,13 @@ async def analyze_geotiff(file: UploadFile = File(...)):
             except Exception:
                 crs_unit = None
 
-            pixel_area_m2 = None
-            if crs and crs.is_projected:
-                pixel_area_m2 = abs(gsd_x) * abs(gsd_y)
+            gsd_x, gsd_y = metric_resolution(src)
+            area_crs = equal_area_crs(src)
+            image_area_m2 = image_ground_area(src, area_crs)
+            if image_area_m2 <= 0:
+                raise HTTPException(status_code=400, detail="ไม่สามารถคำนวณขนาดพื้นที่จากพิกัดภาพนี้ได้")
 
-            return {
+            response = {
                 "success": True,
                 "filename": file.filename,
                 "saved_filename": safe_filename,
@@ -684,7 +676,8 @@ async def analyze_geotiff(file: UploadFile = File(...)):
                     "crs_unit": crs_unit,
                     "gsd_x": abs(gsd_x),
                     "gsd_y": abs(gsd_y),
-                    "pixel_area_m2": pixel_area_m2,
+                    "pixel_area_m2": image_area_m2 / (src.width * src.height),
+                    "image_area_m2": image_area_m2,
                     "tile_size": TILE_SIZE,
                     "size_requirement": (
                         f"{MIN_SIZE}×{MIN_SIZE} ถึง {MAX_SIZE}×{MAX_SIZE} px"
@@ -703,6 +696,9 @@ async def analyze_geotiff(file: UploadFile = File(...)):
                 "validation": validation,
             }
 
+        accepted = True
+        return response
+
     except HTTPException:
         raise
 
@@ -712,11 +708,12 @@ async def analyze_geotiff(file: UploadFile = File(...)):
             detail="ไม่สามารถอ่านไฟล์นี้ด้วย rasterio ได้ อาจไม่ใช่ GeoTIFF ที่ถูกต้อง",
         )
 
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"เกิดข้อผิดพลาด: {str(e)}",
-        )
+    except Exception:
+        logger.exception("GeoTIFF metadata analysis failed")
+        raise HTTPException(status_code=500, detail="ตรวจไฟล์ไม่สำเร็จ กรุณาลองใหม่")
+    finally:
+        if not accepted:
+            file_path.unlink(missing_ok=True)
 
 
 # ==========================
@@ -731,12 +728,14 @@ def detect_geotiff(request: DetectRequest):
     safe_name = os.path.basename(request.saved_filename)
     tif_path = UPLOAD_DIR / safe_name
 
-    if not tif_path.exists():
+    if not is_geotiff(safe_name) or not tif_path.is_file():
         raise HTTPException(
             status_code=404,
             detail="ไม่พบไฟล์ GeoTIFF ที่อัปโหลดไว้ กรุณาอัปโหลดใหม่",
         )
 
+    output_paths = []
+    completed = False
     try:
         with rasterio.open(tif_path) as src:
             validation = validate_metadata(src)
@@ -748,12 +747,14 @@ def detect_geotiff(request: DetectRequest):
                 )
 
             crs = src.crs
-            gsd_x, gsd_y = src.res
+            gsd_x, gsd_y = metric_resolution(src)
             width = src.width
             height = src.height
             bounds = src.bounds
 
-            pixel_area_m2 = abs(gsd_x) * abs(gsd_y)
+            area_crs = equal_area_crs(src)
+            image_area_m2 = image_ground_area(src, area_crs)
+            pixel_area_m2 = image_area_m2 / (width * height)
 
             crs_epsg = crs.to_epsg() if crs else None
             crs_string = str(crs) if crs else None
@@ -764,75 +765,76 @@ def detect_geotiff(request: DetectRequest):
 
         input_preview_name = f"{output_id}_input_preview.jpg"
         result_image_name = f"{output_id}_result.jpg"
+        region_geometry_name = f"{output_id}_regions.json"
 
         input_preview_path = OUTPUT_DIR / input_preview_name
         result_image_path = OUTPUT_DIR / result_image_name
 
+        region_geometry_path = OUTPUT_DIR / region_geometry_name
+        output_paths = [input_preview_path, result_image_path, region_geometry_path]
+
         detections = []
         tile_count = 0
 
-        for window, x_offset, y_offset in generate_tile_windows(width, height):
-            tile_count += 1
+        with TemporaryDirectory() as temp_dir:
+            for window, x_offset, y_offset in generate_tile_windows(width, height):
+                tile_count += 1
 
-            tile_png_name = f"{output_id}_tile_{tile_count:04d}.png"
-            tile_png_path = OUTPUT_DIR / tile_png_name
+                tile_png_path = Path(temp_dir) / "tile.png"
 
-            save_tile_png(tif_path, window, tile_png_path)
+                save_tile_png(tif_path, window, tile_png_path)
 
-            results = yolo_model.predict(
-                source=str(tile_png_path),
-                imgsz=TILE_SIZE,
-                conf=YOLO_CONF_THRESHOLD,
-                verbose=False,
-            )
+                results = yolo_model.predict(
+                    source=str(tile_png_path),
+                    imgsz=TILE_SIZE,
+                    conf=YOLO_CONF_THRESHOLD,
+                    verbose=False,
+                )
 
-            result = results[0]
+                result = results[0]
 
-            conf_values = []
+                conf_values = []
 
-            if result.boxes is not None and result.boxes.conf is not None:
-                conf_values = result.boxes.conf.cpu().numpy().tolist()
+                if result.boxes is not None and result.boxes.conf is not None:
+                    conf_values = result.boxes.conf.cpu().numpy().tolist()
 
-            if result.masks is not None and result.masks.xy is not None:
-                for index, polygon in enumerate(result.masks.xy):
-                    polygon = np.asarray(polygon, dtype=np.float64)
+                if result.masks is not None and result.masks.xy is not None:
+                    for index, polygon in enumerate(result.masks.xy):
+                        polygon = np.asarray(polygon, dtype=np.float64)
 
-                    if len(polygon) < 3:
-                        continue
+                        if len(polygon) < 3:
+                            continue
 
-                    # polygon จาก YOLO เป็นตำแหน่งใน tile
-                    # ต้องบวก offset เพื่อให้เป็นตำแหน่งในภาพ GeoTIFF ใหญ่
-                    global_polygon = polygon.copy()
-                    global_polygon[:, 0] += x_offset
-                    global_polygon[:, 1] += y_offset
+                        # polygon จาก YOLO เป็นตำแหน่งใน tile
+                        # ต้องบวก offset เพื่อให้เป็นตำแหน่งในภาพ GeoTIFF ใหญ่
+                        global_polygon = polygon.copy()
+                        global_polygon[:, 0] += x_offset
+                        global_polygon[:, 1] += y_offset
 
-                    area_px = polygon_area_pixels(global_polygon)
+                        area_px = polygon_area_pixels(global_polygon)
 
-                    if area_px <= 0:
-                        continue
+                        if area_px <= 0:
+                            continue
 
-                    confidence = 0.0
+                        confidence = 0.0
 
-                    if index < len(conf_values):
-                        # แปลงจาก 0.84 เป็น 84.0
-                        confidence = float(conf_values[index] * 100)
+                        if index < len(conf_values):
+                            # แปลงจาก 0.84 เป็น 84.0
+                            confidence = float(conf_values[index] * 100)
 
-                    x1 = float(np.min(global_polygon[:, 0]))
-                    y1 = float(np.min(global_polygon[:, 1]))
-                    x2 = float(np.max(global_polygon[:, 0]))
-                    y2 = float(np.max(global_polygon[:, 1]))
+                        x1 = float(np.min(global_polygon[:, 0]))
+                        y1 = float(np.min(global_polygon[:, 1]))
+                        x2 = float(np.max(global_polygon[:, 0]))
+                        y2 = float(np.max(global_polygon[:, 1]))
 
-                    detections.append(
-                        {
-                            "polygon": global_polygon,
-                            "area_px": area_px,
-                            "confidence": confidence,
-                            "bbox": [x1, y1, x2, y2],
-                        }
-                    )
-
-            if tile_png_path.exists():
-                tile_png_path.unlink()
+                        detections.append(
+                            {
+                                "polygon": global_polygon,
+                                "area_px": area_px,
+                                "confidence": confidence,
+                                "bbox": [x1, y1, x2, y2],
+                            }
+                        )
 
         detections = deduplicate_detections(detections)
 
@@ -847,19 +849,14 @@ def detect_geotiff(request: DetectRequest):
                 sum(item["confidence"] for item in detections) / region_count
             )
 
-        detected_area_m2 = total_mask_pixel_area * pixel_area_m2
+        with rasterio.open(tif_path) as src:
+            detected_locations, detected_area_m2 = build_detected_locations(src, area_crs, detections)
 
         # สมมติ 1 kWp ใช้พื้นที่ประมาณ 5.5 m²
         capacity_kwp = detected_area_m2 / 5.5 if detected_area_m2 > 0 else 0
 
         # สมมติ Peak Sun Hours เฉลี่ย 5 ชั่วโมง/วัน
         daily_energy_kwh = capacity_kwp * 5
-
-        detected_locations = build_detected_locations(
-            tif_path=tif_path,
-            detections=detections,
-            pixel_area_m2=pixel_area_m2,
-        )
 
         save_preview_and_result_images(
             tif_path=tif_path,
@@ -868,9 +865,18 @@ def detect_geotiff(request: DetectRequest):
             detections=detections,
         )
 
+        # Keep detailed shapes out of localStorage and load them only in the image viewer.
+        with region_geometry_path.open("w", encoding="utf-8") as file:
+            json.dump({
+                index: item["polygon"].round(2).tolist()
+                for index, item in enumerate(detections, start=1)
+            }, file, separators=(",", ":"))
+
+        completed = True
         return {
             "success": True,
             "filename": safe_name,
+            "analyzed_at": datetime.now(timezone.utc).isoformat(),
             "image_width": width,
             "image_height": height,
             "tile_size": TILE_SIZE,
@@ -880,7 +886,8 @@ def detect_geotiff(request: DetectRequest):
                 "crs_epsg": crs_epsg,
                 "gsd_x": abs(gsd_x),
                 "gsd_y": abs(gsd_y),
-                "pixel_area_m2": round(pixel_area_m2, 4),
+                "pixel_area_m2": round(pixel_area_m2, 8),
+                "image_area_m2": image_area_m2,
                 "bounds": {
                     "left": bounds.left,
                     "bottom": bounds.bottom,
@@ -897,15 +904,17 @@ def detect_geotiff(request: DetectRequest):
 
             "confidence": round(confidence, 2),
             "mask_pixel_area": round(total_mask_pixel_area, 2),
-            "pixel_area_m2": round(pixel_area_m2, 4),
+            "pixel_area_m2": round(pixel_area_m2, 8),
+            "area_method": "equal_area",
             "detected_area_m2": round(detected_area_m2, 2),
             "capacity_kwp": round(capacity_kwp, 2),
             "daily_energy_kwh": round(daily_energy_kwh, 2),
             "detected_locations": detected_locations,
-            "input_preview": f"http://127.0.0.1:8000/outputs/{input_preview_name}",
-            "result_image": f"http://127.0.0.1:8000/outputs/{result_image_name}",
+            "input_preview": f"/outputs/{input_preview_name}",
+            "result_image": f"/outputs/{result_image_name}",
+            "region_geometry": f"/outputs/{region_geometry_name}",
             "calculation": {
-                "area_formula": "mask_pixel_area × pixel_area_m2",
+                "area_formula": "sum of mask polygon areas in a local equal-area projection",
                 "capacity_formula": "detected_area_m2 / 5.5",
                 "energy_formula": "capacity_kwp × 5",
                 "note": "ค่ากำลังผลิตและพลังงานเป็นการประมาณเบื้องต้น",
@@ -915,8 +924,10 @@ def detect_geotiff(request: DetectRequest):
     except HTTPException:
         raise
 
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"เกิดข้อผิดพลาดขณะ Detect: {str(e)}",
-        )
+    except Exception:
+        logger.exception("GeoTIFF detection failed")
+        raise HTTPException(status_code=500, detail="ตรวจจับไม่สำเร็จ กรุณาลองใหม่")
+    finally:
+        if not completed:
+            for output_path in output_paths:
+                output_path.unlink(missing_ok=True)

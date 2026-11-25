@@ -1,7 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Suspense, useState, type ReactNode } from "react";
 import Link from "next/link";
+import Image from "next/image";
+import DetectionImageViewer, { type RegionControls } from "@/components/analysis/detection-image-viewer";
+import { useSearchParams } from "next/navigation";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -9,147 +12,44 @@ import {
   Download,
   FileText,
   Gauge,
-  ImageIcon,
   Layers3,
   MapPin,
   Ruler,
   Zap,
 } from "lucide-react";
 
-type GeoTiffAnalysis = {
-  success: boolean;
-  filename: string;
-  saved_filename: string;
-  file_size_mb: number;
-  metadata: {
-    driver?: string;
-    width: number;
-    height: number;
-    bands?: number;
-    dtype?: string;
+import {
+  formatAnalysisDate, formatNumber, outputUrl, readHistory, readLatest, useStorageReady,
+  type AnalysisRecord, type DetectedLocation, type DetectionResult, type GeoTiffAnalysis,
+} from "@/lib/analysis";
 
-    crs?: string | null;
-    crs_epsg: number | null;
-    crs_is_projected?: boolean;
-    crs_unit?: string | null;
-
-    gsd_x: number;
-    gsd_y: number;
-    pixel_area_m2: number | null;
-
-    bounds?: {
-      left: number;
-      bottom: number;
-      right: number;
-      top: number;
-    };
-  };
-  validation: {
-    is_valid: boolean;
-    errors: string[];
-    warnings: string[];
-  };
-};
-
-type DetectedLocation = {
-  region_id: number;
-  confidence: number;
-  mask_pixel_area: number;
-  area_m2: number;
-  center_pixel: {
-    x: number;
-    y: number;
-  };
-  map_coordinate: {
-    x: number;
-    y: number;
-    crs: string | null;
-  };
-  latitude: number | null;
-  longitude: number | null;
-};
-
-type DetectionResult = {
-  success: boolean;
-  filename: string;
-
-  panel_count: number;
-  region_count?: number;
-
-  confidence: number;
-  mask_pixel_area: number;
-  pixel_area_m2: number;
-  detected_area_m2: number;
-  capacity_kwp: number;
-  daily_energy_kwh: number;
-
-  detected_locations?: DetectedLocation[];
-
-  input_preview: string;
-  result_image: string;
-
-  metadata?: {
-    crs?: string | null;
-    crs_epsg?: number | null;
-    gsd_x?: number;
-    gsd_y?: number;
-    pixel_area_m2?: number;
-    bounds?: {
-      left: number;
-      bottom: number;
-      right: number;
-      top: number;
-    };
-  };
-};
+function areaFormula(result: DetectionResult) {
+  if (result.area_method === "equal_area") return "ผลรวมพื้นที่ของขอบเขตบนระบบพิกัดรักษาพื้นที่";
+  return `${formatNumber(result.mask_pixel_area)} px × ${formatNumber(result.pixel_area_m2, 4)} m²/px`;
+}
 
 export default function ReportPage() {
-  const [metadata, setMetadata] = useState<GeoTiffAnalysis | null>(null);
-  const [result, setResult] = useState<DetectionResult | null>(null);
+  return <Suspense fallback={<p role="status">กำลังเปิดรายงาน…</p>}><ReportSelection /></Suspense>;
+}
 
-  useEffect(() => {
-    const storedMetadata = localStorage.getItem("geotiff_analysis");
-    const storedDetection = localStorage.getItem("geotiff_detection");
+function ReportSelection() {
+  const params = useSearchParams();
+  const ready = useStorageReady();
+  if (!ready) return <p role="status">กำลังเปิดรายงาน…</p>;
+  const id = params.get("id");
+  const record = id ? readHistory().find((entry) => entry.id === id) : readLatest();
 
-    if (storedMetadata) {
-      try {
-        setMetadata(JSON.parse(storedMetadata));
-      } catch {
-        localStorage.removeItem("geotiff_analysis");
-      }
-    }
-
-    if (storedDetection) {
-      try {
-        setResult(JSON.parse(storedDetection));
-      } catch {
-        localStorage.removeItem("geotiff_detection");
-      }
-    }
-  }, []);
-
-  const detectedRegionCount = result?.region_count ?? result?.panel_count ?? 0;
-
-  const locations = useMemo(() => {
-    return result?.detected_locations ?? [];
-  }, [result]);
-
-  const reportLocations = useMemo(() => {
-    return locations;
-  }, [locations]);
-
-  if (!metadata || !result) {
+  if (!record) {
     return (
       <div className="rounded-[32px] border border-slate-200 bg-white p-10 text-center shadow-sm">
         <AlertTriangle className="mx-auto h-14 w-14 text-amber-500" />
 
         <h2 className="mt-5 text-2xl font-bold text-slate-900">
-          ยังไม่มีข้อมูลสำหรับสร้าง Report
+          ไม่พบรายงานในเบราว์เซอร์นี้
         </h2>
 
         <p className="mx-auto mt-3 max-w-2xl text-slate-500">
-          กรุณาอัปโหลด GeoTIFF ตรวจสอบ Metadata และรัน AI Detection ให้เสร็จก่อน
-          ระบบจึงจะสามารถสร้างหน้าสรุปผลได้
+          หากเปิดจากลิงก์ประวัติ รายการอาจอยู่ในเบราว์เซอร์อื่นหรือถูกลบแล้ว
         </p>
 
         <div className="mt-8 flex flex-wrap justify-center gap-4">
@@ -164,12 +64,21 @@ export default function ReportPage() {
             href="/analysis"
             className="inline-flex rounded-2xl border border-slate-300 px-6 py-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
           >
-            ไปหน้า AI Detection
+            ดูผลล่าสุด
           </Link>
         </div>
       </div>
     );
   }
+
+  return <ReportView key={record.detection.result_image} record={record} />;
+}
+
+function ReportView({ record }: { record: AnalysisRecord }) {
+  const [imageStatus, setImageStatus] = useState<"loading" | "ready" | "error">("loading");
+  const { metadata, detection: result, analyzed_at: analyzedAt } = record;
+  const detectedRegionCount = result.region_count ?? result.panel_count;
+  const locations = result.detected_locations ?? [];
 
   return (
     <>
@@ -178,11 +87,12 @@ export default function ReportPage() {
         result={result}
         detectedRegionCount={detectedRegionCount}
         locations={locations}
-        reportLocations={reportLocations}
+        analyzedAt={analyzedAt}
+        imageStatus={imageStatus}
       />
 
       <div className="no-print space-y-8">
-        <div className="rounded-[32px] border border-slate-200 bg-white p-8 shadow-sm">
+        <div className="rounded-[32px] border border-slate-200 bg-white p-5 shadow-sm sm:p-8">
           <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <div className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700">
@@ -191,7 +101,7 @@ export default function ReportPage() {
               </div>
 
               <h1 className="mt-5 text-3xl font-bold text-slate-900">
-                รายงานสรุปผลการตรวจจับ Solar Rooftop
+                รายงานผลตรวจจับแผงโซลาร์เซลล์
               </h1>
 
               <p className="mt-3 max-w-3xl break-words text-slate-500">
@@ -203,10 +113,12 @@ export default function ReportPage() {
               <p className="mt-3 break-words text-sm text-slate-400">
                 ไฟล์ที่วิเคราะห์: {metadata.filename}
               </p>
+              <p className="mt-1 text-sm text-slate-600">วิเคราะห์เมื่อ {formatAnalysisDate(analyzedAt)}</p>
             </div>
           </div>
         </div>
 
+        {detectedRegionCount === 0 && <p className="rounded-xl bg-slate-100 p-4 text-sm text-slate-700">โมเดลไม่พบผลที่ผ่านเกณฑ์ในภาพนี้</p>}
         <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-5">
           <SummaryCard
             icon={<Layers3 className="h-6 w-6 text-blue-600" />}
@@ -217,9 +129,9 @@ export default function ReportPage() {
 
           <SummaryCard
             icon={<Gauge className="h-6 w-6 text-emerald-600" />}
-            label="Average Confidence"
-            value={formatNumber(result.confidence, 2)}
-            unit="%"
+            label="คะแนนโมเดลเฉลี่ย"
+            value={detectedRegionCount ? formatNumber(result.confidence) : "—"}
+            unit={detectedRegionCount ? "%" : ""}
           />
 
           <SummaryCard
@@ -319,138 +231,31 @@ export default function ReportPage() {
 
             <InfoRow
               label="Tile Size"
-              value={`${formatNumber(1024, 0)} × ${formatNumber(1024, 0)} px`}
+              value={result.tile_size ? `${result.tile_size} × ${result.tile_size} px` : "ไม่มีข้อมูล"}
             />
           </InfoSection>
         </div>
 
-        <div className="rounded-[32px] border border-slate-200 bg-white p-8 shadow-sm">
-          <div className="mb-5 flex items-center gap-3">
-            <ImageIcon className="h-6 w-6 text-slate-700" />
+        <DetectionImageViewer
+          metadata={metadata}
+          result={result}
+          onResultImageStatus={setImageStatus}
+          LocationTable={ReportLocationTable}
+        />
 
-            <h2 className="text-2xl font-bold text-slate-900">
-              Detection Result Image
-            </h2>
-          </div>
-
-          <p className="mb-6 text-sm leading-6 text-slate-500">
-            ภาพนี้แสดงผลลัพธ์จาก YOLO Segmentation โดยมีการ overlay mask
-            บนบริเวณที่โมเดลตรวจพบว่าเป็น Solar Rooftop
-          </p>
-
-          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
-            <img
-              src={result.result_image}
-              alt="YOLO Segmentation Result"
-              className="h-auto w-full object-contain"
-            />
-          </div>
-        </div>
-
-        <div className="rounded-[32px] border border-slate-200 bg-white p-8 shadow-sm">
-          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-            <div>
-              <div className="flex items-center gap-3">
-                <MapPin className="h-6 w-6 text-blue-600" />
-
-                <h2 className="text-2xl font-bold text-slate-900">
-                  Detected Locations Summary
-                </h2>
-              </div>
-
-              <p className="mt-3 text-sm leading-6 text-slate-500">
-                ตารางนี้แสดงตำแหน่งของพื้นที่ Solar Rooftop ที่ตรวจพบทั้งหมด
-                จากผลการตรวจจับจำนวน {locations.length} regions
-              </p>
-            </div>
-
-            <div className="rounded-full bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700">
-              {locations.length} regions
-            </div>
-          </div>
-
-          {reportLocations.length === 0 ? (
-            <div className="mt-6 rounded-2xl bg-slate-50 p-6 text-sm text-slate-500">
-              ไม่พบข้อมูล Detected Locations
-            </div>
-          ) : (
-            <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200">
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[900px] text-left text-sm">
-                  <thead className="bg-slate-50 text-slate-500">
-                    <tr>
-                      <th className="px-5 py-4 font-semibold">Region</th>
-                      <th className="px-5 py-4 font-semibold">Confidence</th>
-                      <th className="px-5 py-4 font-semibold">Area</th>
-                      <th className="px-5 py-4 font-semibold">Center Pixel</th>
-                      <th className="px-5 py-4 font-semibold">Latitude</th>
-                      <th className="px-5 py-4 font-semibold">Longitude</th>
-                    </tr>
-                  </thead>
-
-                  <tbody className="divide-y divide-slate-200 bg-white">
-                    {reportLocations.map((location) => (
-                      <tr
-                        key={location.region_id}
-                        className="transition hover:bg-slate-50"
-                      >
-                        <td className="px-5 py-4 font-semibold text-slate-900">
-                          #{location.region_id}
-                        </td>
-
-                        <td className="px-5 py-4">
-                          <ConfidenceBadge value={location.confidence} />
-                        </td>
-
-                        <td className="px-5 py-4 text-slate-700">
-                          {formatNumber(location.area_m2, 2)} m²
-                        </td>
-
-                        <td className="px-5 py-4 text-slate-700">
-                          x={formatNumber(location.center_pixel.x, 2)}
-                          <br />
-                          y={formatNumber(location.center_pixel.y, 2)}
-                        </td>
-
-                        <td className="px-5 py-4 text-slate-700">
-                          {location.latitude !== null
-                            ? formatNumber(location.latitude, 7)
-                            : "N/A"}
-                        </td>
-
-                        <td className="px-5 py-4 text-slate-700">
-                          {location.longitude !== null
-                            ? formatNumber(location.longitude, 7)
-                            : "N/A"}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="rounded-[32px] border border-slate-200 bg-white p-8 shadow-sm">
+        <div className="rounded-[32px] border border-slate-200 bg-white p-5 shadow-sm sm:p-8">
           <h2 className="text-2xl font-bold text-slate-900">
             Calculation Summary
           </h2>
 
           <p className="mt-3 text-sm leading-6 text-slate-500">
-            การคำนวณพื้นที่จริงใช้พื้นที่ของ mask ที่โมเดลตรวจพบคูณกับค่า pixel
-            area จาก GeoTIFF Metadata
-            จากนั้นนำพื้นที่ที่ได้ไปประมาณกำลังผลิตติดตั้ง
-            และพลังงานไฟฟ้าต่อวันเบื้องต้น
+            ใช้พื้นที่ของบริเวณที่โมเดลตรวจพบเพื่อประมาณกำลังติดตั้งและพลังงานต่อวัน
           </p>
 
           <div className="mt-6 grid gap-4 md:grid-cols-3">
             <FormulaBox
               label="Area Calculation"
-              value={`${formatNumber(
-                result.mask_pixel_area,
-                2,
-              )} px × ${formatNumber(result.pixel_area_m2, 4)} m²/px`}
+              value={areaFormula(result)}
               result={`${formatNumber(result.detected_area_m2, 2)} m²`}
             />
 
@@ -486,14 +291,113 @@ export default function ReportPage() {
           <button
             type="button"
             onClick={() => window.print()}
+            disabled={imageStatus === "loading"}
             className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-6 py-4 text-sm font-semibold text-white transition hover:bg-blue-700"
           >
             <Download className="h-4 w-4" />
-            Print / Save as PDF
+            {imageStatus === "loading" ? "กำลังโหลดภาพ…" : "พิมพ์ / บันทึกเป็น PDF"}
           </button>
         </div>
       </div>
     </>
+  );
+}
+
+function ReportLocationTable({ locations, selectedId, viewerId, selectRegion }: RegionControls) {
+  return (
+    <div className="rounded-[32px] border border-slate-200 bg-white p-5 shadow-sm sm:p-8">
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div>
+          <div className="flex items-center gap-3">
+            <MapPin className="h-6 w-6 text-blue-600" />
+
+            <h2 className="text-2xl font-bold text-slate-900">
+              Detected Locations Summary
+            </h2>
+          </div>
+
+          <p className="mt-3 text-sm leading-6 text-slate-500">
+            {locations.length > 0 && "กดหมายเลขบริเวณเพื่อซูมและดูตำแหน่งในภาพด้านบน"}
+          </p>
+        </div>
+
+        <div className="rounded-full bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700">
+          {locations.length} regions
+        </div>
+      </div>
+
+      {locations.length === 0 ? (
+        <div className="mt-6 rounded-2xl bg-slate-50 p-6 text-sm text-slate-500">
+          ไม่พบข้อมูล Detected Locations
+        </div>
+      ) : (
+        <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[900px] text-left text-sm">
+              <thead className="bg-slate-50 text-slate-500">
+                <tr>
+                  <th className="px-5 py-4 font-semibold">Region</th>
+                  <th className="px-5 py-4 font-semibold">Confidence</th>
+                  <th className="px-5 py-4 font-semibold">Area</th>
+                  <th className="px-5 py-4 font-semibold">Center Pixel</th>
+                  <th className="px-5 py-4 font-semibold">Latitude</th>
+                  <th className="px-5 py-4 font-semibold">Longitude</th>
+                </tr>
+              </thead>
+
+              <tbody className="divide-y divide-slate-200 bg-white">
+                {locations.map((location) => (
+                  <tr
+                    key={location.region_id}
+                    className={location.region_id === selectedId ? "bg-teal-50" : "transition hover:bg-slate-50"}
+                  >
+                    <td className="px-5 py-4 font-semibold text-slate-900">
+                      <button
+                        type="button"
+                        onClick={(event) => selectRegion(location.region_id, event.currentTarget)}
+                        aria-controls={viewerId}
+                        aria-label={`ดูบริเวณ #${location.region_id} ในภาพ`}
+                        aria-pressed={location.region_id === selectedId}
+                        className="inline-flex min-h-10 items-center gap-2 rounded-lg px-3 font-semibold text-blue-800 hover:bg-blue-50 focus-visible:outline-2 focus-visible:outline-blue-700 aria-pressed:bg-teal-100 aria-pressed:text-teal-950"
+                      >
+                        <MapPin className="h-4 w-4" aria-hidden="true" />
+                        #{location.region_id}
+                      </button>
+                    </td>
+
+                    <td className="px-5 py-4">
+                      <ConfidenceBadge value={location.confidence} />
+                    </td>
+
+                    <td className="px-5 py-4 text-slate-700">
+                      {formatNumber(location.area_m2, 2)} m²
+                    </td>
+
+                    <td className="px-5 py-4 text-slate-700">
+                      x={formatNumber(location.center_pixel.x, 2)}
+                      <br />
+                      y={formatNumber(location.center_pixel.y, 2)}
+                    </td>
+
+                    <td className="px-5 py-4 text-slate-700">
+                      {location.latitude !== null
+                        ? formatNumber(location.latitude, 7)
+                        : "N/A"}
+                    </td>
+
+                    <td className="px-5 py-4 text-slate-700">
+                      {location.longitude !== null
+                        ? formatNumber(location.longitude, 7)
+                        : "N/A"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -502,13 +406,15 @@ function OfficialPrintReport({
   result,
   detectedRegionCount,
   locations,
-  reportLocations,
+  analyzedAt,
+  imageStatus,
 }: {
   metadata: GeoTiffAnalysis;
   result: DetectionResult;
   detectedRegionCount: number;
   locations: DetectedLocation[];
-  reportLocations: DetectedLocation[];
+  analyzedAt: string | null;
+  imageStatus: "loading" | "ready" | "error";
 }) {
   const crsText = metadata.metadata.crs_epsg
     ? `EPSG:${metadata.metadata.crs_epsg}`
@@ -520,24 +426,19 @@ function OfficialPrintReport({
     day: "numeric",
   });
 
-  const imageAreaM2 =
-    metadata.metadata.pixel_area_m2 !== null
-      ? metadata.metadata.width *
-        metadata.metadata.height *
-        metadata.metadata.pixel_area_m2
-      : null;
+  const imageAreaM2 = metadata.metadata.image_area_m2 ?? (
+    metadata.metadata.pixel_area_m2 === null ? null :
+      metadata.metadata.width * metadata.metadata.height * metadata.metadata.pixel_area_m2
+  );
 
   const detectedAreaPercent =
     imageAreaM2 && imageAreaM2 > 0
       ? (result.detected_area_m2 / imageAreaM2) * 100
       : null;
 
-  const confidenceInterpretation =
-    result.confidence >= 70
-      ? "ค่าความเชื่อมั่นเฉลี่ยอยู่ในระดับค่อนข้างสูง สามารถใช้ประกอบการวิเคราะห์เบื้องต้นได้ดี แต่ยังควรตรวจทานผลลัพธ์จากภาพร่วมด้วย"
-      : result.confidence >= 50
-        ? "ค่าความเชื่อมั่นเฉลี่ยอยู่ในระดับปานกลาง เหมาะสำหรับใช้เป็นข้อมูลประกอบการสำรวจเบื้องต้น และควรตรวจสอบผลลัพธ์ด้วยสายตาหรือข้อมูลภาคสนามเพิ่มเติม"
-        : "ค่าความเชื่อมั่นเฉลี่ยอยู่ในระดับค่อนข้างต่ำ ผลลัพธ์ควรใช้เพื่อการตรวจสอบเบื้องต้นเท่านั้น และควรมีการตรวจทานจากผู้เชี่ยวชาญหรือข้อมูลภาคสนามก่อนนำไปใช้จริง";
+  const confidenceInterpretation = detectedRegionCount === 0
+    ? "โมเดลไม่พบผลที่ผ่านเกณฑ์ในภาพนี้ หากพื้นที่เป้าหมายมีแผงที่ทราบอยู่แล้ว ควรตรวจความละเอียดของภาพและขอบเขตที่ถ่าย"
+    : "คะแนนโมเดลใช้ประกอบการตรวจทาน ควรพิจารณาภาพผลตรวจจับและข้อมูลพื้นที่ร่วมด้วย";
 
   return (
     <article className="official-report">
@@ -569,7 +470,8 @@ function OfficialPrintReport({
 
           <div className="official-cover-meta">
             <p>ไฟล์ที่วิเคราะห์: {metadata.filename}</p>
-            <p>วันที่จัดทำรายงาน: {reportDate}</p>
+            <p>วิเคราะห์เมื่อ {formatAnalysisDate(analyzedAt)}</p>
+            <p>ออกรายงานวันที่ {reportDate}</p>
           </div>
         </div>
       </section>
@@ -602,9 +504,8 @@ function OfficialPrintReport({
           จากการวิเคราะห์ไฟล์ภาพ {metadata.filename}{" "}
           ระบบตรวจพบพื้นที่ที่คาดว่าเป็น Solar Rooftop จำนวน{" "}
           {formatNumber(detectedRegionCount, 0)} regions
-          โดยมีค่าความเชื่อมั่นเฉลี่ยของโมเดลเท่ากับ{" "}
-          {formatNumber(result.confidence, 2)}% และมีพื้นที่ Solar Rooftop
-          รวมที่ตรวจพบประมาณ {formatNumber(result.detected_area_m2, 2)}{" "}
+          {detectedRegionCount > 0 && ` คะแนนโมเดลเฉลี่ย ${formatNumber(result.confidence)}%`}
+          {" "}พื้นที่รวมที่ตรวจพบประมาณ {formatNumber(result.detected_area_m2, 2)}{" "}
           ตารางเมตร
         </p>
 
@@ -641,7 +542,7 @@ function OfficialPrintReport({
             <tr>
               <td style={{ textAlign: "center" }}>2</td>
               <td>ค่าความเชื่อมั่นเฉลี่ยของโมเดล</td>
-              <td>{formatNumber(result.confidence, 2)}%</td>
+              <td>{detectedRegionCount ? `${formatNumber(result.confidence)}%` : "—"}</td>
             </tr>
 
             <tr>
@@ -783,9 +684,7 @@ function OfficialPrintReport({
         </p>
 
         <p className="official-paragraph">
-          พื้นที่จริงของ Solar Rooftop คำนวณจากจำนวน pixel ภายใน mask คูณกับค่า
-          Pixel Area ของไฟล์ GeoTIFF
-          จากนั้นนำพื้นที่ที่ได้ไปประมาณกำลังผลิตติดตั้งและพลังงานไฟฟ้าต่อวัน
+          วิธีคำนวณพื้นที่คือ {areaFormula(result)} จากนั้นนำพื้นที่ไปประมาณกำลังติดตั้งและพลังงานไฟฟ้าต่อวัน
           โดยใช้สมมติฐานเบื้องต้นดังต่อไปนี้
         </p>
 
@@ -814,11 +713,12 @@ function OfficialPrintReport({
         </p>
 
         <div className="official-image-wrapper">
-          <img
-            src={result.result_image}
-            alt="YOLO Segmentation Result"
-            className="official-image"
-          />
+          {imageStatus === "ready" ? (
+            <Image unoptimized loading="eager" src={outputUrl(result.result_image)}
+              alt="ภาพแสดงขอบเขตที่โมเดลตรวจพบ"
+              width={metadata.metadata.width} height={metadata.metadata.height}
+              className="official-image" />
+          ) : <p>ไม่มีภาพผลตรวจจับสำหรับพิมพ์</p>}
 
           <p className="official-caption">
             ภาพที่ 1 ผลการตรวจจับพื้นที่ Solar Rooftop ด้วย YOLO Segmentation
@@ -826,7 +726,7 @@ function OfficialPrintReport({
         </div>
       </section>
 
-      <section className="official-section">
+      <section className="official-section official-location-section">
         <h2 className="official-section-title">
           6. สรุปตำแหน่งพื้นที่ที่ตรวจพบ
         </h2>
@@ -838,7 +738,7 @@ function OfficialPrintReport({
           เพื่อใช้ประกอบการตรวจสอบตำแหน่งหรือการนำไปวิเคราะห์เชิงพื้นที่ต่อไป
         </p>
 
-        {reportLocations.length === 0 ? (
+        {locations.length === 0 ? (
           <p>ไม่พบข้อมูลตำแหน่งของพื้นที่ที่ตรวจจับได้</p>
         ) : (
           <table className="official-table official-location-table">
@@ -854,7 +754,7 @@ function OfficialPrintReport({
             </thead>
 
             <tbody>
-              {reportLocations.map((location) => (
+              {locations.map((location) => (
                 <tr key={location.region_id}>
                   <td style={{ textAlign: "center" }}>#{location.region_id}</td>
 
@@ -907,9 +807,7 @@ function OfficialPrintReport({
             <tr>
               <td>พื้นที่จริงของ Solar Rooftop</td>
               <td>
-                Mask Pixel Area × Pixel Area ={" "}
-                {formatNumber(result.mask_pixel_area, 2)} ×{" "}
-                {formatNumber(result.pixel_area_m2, 4)}
+                {areaFormula(result)}
               </td>
               <td>{formatNumber(result.detected_area_m2, 2)} m²</td>
             </tr>
@@ -1025,7 +923,7 @@ function InfoSection({
   children: ReactNode;
 }) {
   return (
-    <div className="rounded-[32px] border border-slate-200 bg-white p-8 shadow-sm">
+    <div className="rounded-[32px] border border-slate-200 bg-white p-5 shadow-sm sm:p-8">
       <h2 className="text-2xl font-bold text-slate-900">{title}</h2>
 
       <div className="mt-6 space-y-4">{children}</div>
@@ -1082,11 +980,4 @@ function ConfidenceBadge({ value }: { value: number }) {
       {formatNumber(value, 2)}%
     </span>
   );
-}
-
-function formatNumber(value: number, decimals = 2) {
-  return value.toLocaleString("en-US", {
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals,
-  });
 }

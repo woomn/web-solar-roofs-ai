@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import {
   AlertTriangle,
@@ -12,91 +12,27 @@ import {
   Zap,
 } from "lucide-react";
 
-type GeoTiffAnalysis = {
-  success: boolean;
-  filename: string;
-  saved_filename: string;
-  file_size_mb: number;
-  metadata: {
-    width: number;
-    height: number;
-    gsd_x: number;
-    gsd_y: number;
-    pixel_area_m2: number | null;
-    crs_epsg: number | null;
-  };
-  validation: {
-    is_valid: boolean;
-    errors: string[];
-    warnings: string[];
-  };
-};
-
-type DetectionResult = {
-  success: boolean;
-  filename: string;
-  panel_count: number;
-  region_count?: number;
-  confidence: number;
-  mask_pixel_area: number;
-  pixel_area_m2: number;
-  detected_area_m2: number;
-  capacity_kwp: number;
-  daily_energy_kwh: number;
-  input_preview: string;
-  result_image: string;
-  detected_locations?: unknown[];
-};
-
-type AnalysisHistoryItem = {
-  id: string;
-  analyzed_at: string;
-  metadata: GeoTiffAnalysis;
-  detection: DetectionResult;
-};
-
-const HISTORY_KEY = "solar_analysis_history";
+import { formatAnalysisDate, formatNumber, readHistory, useStorageReady, writeHistory, type AnalysisRecord } from "@/lib/analysis";
 
 export default function HistoryPage() {
-  const [history, setHistory] = useState<AnalysisHistoryItem[]>([]);
+  const ready = useStorageReady();
+  const history = ready ? readHistory() : [];
+  const [error, setError] = useState("");
 
-  useEffect(() => {
-    const storedHistory = localStorage.getItem(HISTORY_KEY);
-
-    if (!storedHistory) return;
-
+  function updateHistory(records: AnalysisRecord[]) {
     try {
-      setHistory(JSON.parse(storedHistory));
+      writeHistory(records);
+      setError("");
     } catch {
-      localStorage.removeItem(HISTORY_KEY);
-      setHistory([]);
+      setError("เบราว์เซอร์บันทึกการเปลี่ยนแปลงไม่ได้ กรุณาลองใหม่");
     }
-  }, []);
+  }
 
-  const openReport = (item: AnalysisHistoryItem) => {
-    localStorage.setItem("geotiff_analysis", JSON.stringify(item.metadata));
-    localStorage.setItem("geotiff_detection", JSON.stringify(item.detection));
-  };
-
-  const deleteItem = (id: string) => {
-    const updatedHistory = history.filter((item) => item.id !== id);
-    setHistory(updatedHistory);
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(updatedHistory));
-  };
-
-  const clearHistory = () => {
-    const confirmed = window.confirm(
-      "ต้องการลบประวัติการวิเคราะห์ทั้งหมดหรือไม่?",
-    );
-
-    if (!confirmed) return;
-
-    setHistory([]);
-    localStorage.removeItem(HISTORY_KEY);
-  };
+  if (!ready) return <p role="status">กำลังโหลดประวัติ…</p>;
 
   return (
-    <div className="space-y-8">
+    <div className="mx-auto max-w-6xl space-y-8">
+      {error && <p role="alert" className="text-red-800">{error}</p>}
       <div className="rounded-[32px] border border-slate-200 bg-white p-8 shadow-sm">
         <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
           <div>
@@ -110,19 +46,18 @@ export default function HistoryPage() {
             </h1>
 
             <p className="mt-3 max-w-3xl text-slate-500">
-              หน้านี้แสดงรายการไฟล์ GeoTIFF ที่เคยวิเคราะห์ พร้อมผลตรวจจับ
-              พื้นที่รวม กำลังผลิต และพลังงานไฟฟ้าที่ประมาณได้
+              เก็บผลล่าสุดสูงสุด 20 รายการในเบราว์เซอร์นี้ ภาพในรายงานจะเปิดได้เมื่อไฟล์ผลลัพธ์ยังอยู่บนเซิร์ฟเวอร์
             </p>
           </div>
 
           {history.length > 0 && (
             <button
               type="button"
-              onClick={clearHistory}
+              onClick={() => { if (window.confirm("ลบประวัติทั้งหมดในเบราว์เซอร์นี้หรือไม่?")) updateHistory([]); }}
               className="inline-flex items-center gap-2 rounded-2xl border border-red-200 px-5 py-3 text-sm font-semibold text-red-600 transition hover:bg-red-50"
             >
               <Trash2 className="h-4 w-4" />
-              Clear History
+              ล้างประวัติ
             </button>
           )}
         </div>
@@ -154,7 +89,7 @@ export default function HistoryPage() {
                         </h2>
 
                         <p className="mt-1 text-sm text-slate-400">
-                          วิเคราะห์เมื่อ {formatDateTime(item.analyzed_at)}
+                          วิเคราะห์เมื่อ {formatAnalysisDate(item.analyzed_at)}
                         </p>
                       </div>
                     </div>
@@ -195,21 +130,20 @@ export default function HistoryPage() {
 
                   <div className="flex shrink-0 flex-wrap gap-3">
                     <Link
-                      href="/report"
-                      onClick={() => openReport(item)}
+                      href={`/report?id=${encodeURIComponent(item.id)}`}
                       className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-700"
                     >
                       <Eye className="h-4 w-4" />
-                      View Report
+                      เปิดรายงาน
                     </Link>
 
                     <button
                       type="button"
-                      onClick={() => deleteItem(item.id)}
+                      onClick={() => updateHistory(readHistory().filter(({ id }) => id !== item.id))}
                       className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
                     >
                       <Trash2 className="h-4 w-4" />
-                      Delete
+                      ลบจากประวัติ
                     </button>
                   </div>
                 </div>
@@ -276,18 +210,4 @@ function MiniStat({
       </div>
     </div>
   );
-}
-
-function formatNumber(value: number, decimals = 2) {
-  return value.toLocaleString("en-US", {
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals,
-  });
-}
-
-function formatDateTime(value: string) {
-  return new Date(value).toLocaleString("th-TH", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
 }
