@@ -194,6 +194,19 @@ body {
     text-align: center;
   }
 
+  .official-location-section {
+    break-inside: auto;
+    page-break-inside: auto;
+  }
+
+  .official-location-table thead {
+    display: table-header-group;
+  }
+
+  .official-location-table tr {
+    break-inside: avoid;
+  }
+
   .official-location-table {
     font-size: 10.5pt;
   }

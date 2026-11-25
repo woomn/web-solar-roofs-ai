@@ -1,23 +1,14 @@
 import MetadataResult from "@/components/metadata/metadataresult";
+import WorkflowSteps from "@/components/layout/workflow-steps";
 
 export default function MetadataPage() {
   return (
-    <div className="space-y-8">
-      <section>
-        <div className="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700">
-          Metadata Validation
-        </div>
-
-        <h1 className="mt-5 text-4xl font-bold tracking-tight text-slate-950">
-          ตรวจสอบ Metadata ของ GeoTIFF
-        </h1>
-
-        <p className="mt-4 max-w-3xl text-base leading-7 text-slate-600">
-          ระบบอ่านค่า CRS, GSD, Pixel Size, Bounds และขนาดภาพจาก GeoTIFF
-          เพื่อใช้ตรวจสอบความพร้อมก่อนส่งเข้าสู่ AI Detection
-        </p>
-      </section>
-
+    <div className="mx-auto max-w-6xl space-y-5">
+      <WorkflowSteps current={2} />
+      <header>
+        <h1 className="text-2xl font-bold text-slate-950 sm:text-4xl">ตรวจข้อมูลภาพ</h1>
+        <p className="mt-2 text-sm leading-6 text-slate-600">ดูว่าไฟล์พร้อมสำหรับการตรวจจับและตรวจสอบคำเตือนก่อนเริ่ม</p>
+      </header>
       <MetadataResult />
     </div>
   );

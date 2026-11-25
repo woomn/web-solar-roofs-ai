@@ -1,21 +1,10 @@
 import Link from "next/link";
-import { UploadCloud } from "lucide-react";
 
 export default function Navbar() {
   return (
-    <header className="no-print flex h-16 items-center justify-between border-b border-slate-200 bg-white px-8">
-      <div>
-        <h2 className="text-xl font-bold text-emerald-700">Solar Roof AI</h2>
-        <p className="text-xs text-slate-500">
-          GeoTIFF Solar Rooftop Detection System
-        </p>
-      </div>
-
-      <Link
-        href="/upload"
-        className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700"
-      >
-        <UploadCloud className="h-4 w-4" />
+    <header className="no-print flex min-h-14 items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-2 sm:px-8">
+      <Link href="/" className="text-sm font-bold text-slate-900 sm:text-base">Solar Roof AI</Link>
+      <Link href="/upload" className="rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-800">
         เริ่มวิเคราะห์ใหม่
       </Link>
     </header>
