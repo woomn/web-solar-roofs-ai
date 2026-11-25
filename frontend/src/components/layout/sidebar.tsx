@@ -37,7 +37,7 @@ const navItems = [
     href: "/history",
     label: "History",
     icon: HistoryIcon,
-    status: "Soon",
+    status: "",
   },
   {
     href: "/report",

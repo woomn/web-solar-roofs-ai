@@ -596,7 +596,7 @@ function OfficialPrintReport({
       </section>
 
       <section className="official-section">
-        <h2 className="official-section-title">2. บทสรุปผู้บริหาร</h2>
+        <h2 className="official-section-title">2. บทสรุป</h2>
 
         <p className="official-paragraph">
           จากการวิเคราะห์ไฟล์ภาพ {metadata.filename}{" "}
