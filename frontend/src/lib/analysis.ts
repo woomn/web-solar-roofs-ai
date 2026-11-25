@@ -71,6 +71,7 @@ export type UploadRequirements = {
   min_size: number;
   max_size: number;
   min_bands: number;
+  sample_available?: boolean;
   recommended_min_gsd: number;
   max_gsd: number;
 };
