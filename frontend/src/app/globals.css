@@ -25,14 +25,14 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
-/* ซ่อนรายงานทางการตอนดูบนเว็บ */
+/* Keep the print report out of the interactive view. */
 @media screen {
   .official-report {
     display: none !important;
   }
 }
 
-/* ใช้ layout รายงานทางการเฉพาะตอน Print / Save PDF */
+/* Apply the A4 report layout when printing or saving a PDF. */
 @media print {
   @page {
     size: A4;
